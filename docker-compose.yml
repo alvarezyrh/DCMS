@@ -1,0 +1,85 @@
+# DCMS dengan Docker Compose.
+#
+#   Coba di komputer sendiri (tanpa HTTPS):
+#     docker compose up -d --build          → http://localhost:8080
+#
+#   Server produksi dengan HTTPS otomatis (Caddy + Let's Encrypt):
+#     cp .env.example .env                  # isi DCMS_DOMAIN, CMS_SITE_URL, dst.
+#     docker compose --profile https up -d --build
+#
+# Semua nilai bisa diatur di file .env (lihat .env.example).
+name: dcms
+
+services:
+  dcms:
+    image: dcms:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: dcms
+    restart: unless-stopped
+    environment:
+      # Password akun "admin" saat database pertama kali dibuat (tidak dicetak ke log).
+      CMS_ADMIN_PASSWORD: ${CMS_ADMIN_PASSWORD:-}
+      # Produksi: alamat resmi situs, mis. https://contoh.id (aktifkan cookie Secure + HSTS).
+      CMS_SITE_URL: ${CMS_SITE_URL:-}
+      # 1 bila di belakang reverse proxy (profil https), agar IP pengunjung terbaca benar.
+      CMS_TRUST_PROXY: ${CMS_TRUST_PROXY:-0}
+    ports:
+      # Bawaan hanya bisa diakses dari komputer ini. Ganti DCMS_BIND=0.0.0.0 untuk dibuka ke jaringan.
+      - "${DCMS_BIND:-127.0.0.1}:${DCMS_PORT:-8080}:3000"
+    volumes:
+      # Database SQLite + gambar unggahan. Ikut dibackup!
+      - dcms-data:/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    # Semua hak dibuang kecuali yang dipakai entrypoint sesaat untuk merapikan pemilik
+    # /data lalu turun ke user dcms (uid 10001); aplikasinya berjalan tanpa hak khusus.
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETUID
+      - SETGID
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:3000/robots.txt"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+
+  # Reverse proxy HTTPS. Hanya jalan dengan: docker compose --profile https up -d
+  caddy:
+    image: caddy:2.10-alpine
+    container_name: dcms-caddy
+    profiles: ["https"]
+    restart: unless-stopped
+    depends_on:
+      dcms:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DCMS_DOMAIN: ${DCMS_DOMAIN:-}
+    # Dicek di sini (bukan dengan ${VAR:?}) agar mode tanpa HTTPS tidak ikut menuntut domain.
+    command:
+      - sh
+      - -c
+      - '[ -n "$$DCMS_DOMAIN" ] || { echo "GALAT: isi DCMS_DOMAIN di file .env untuk profil https" >&2; exit 1; }; exec caddy run --config /etc/caddy/Caddyfile --adapter caddyfile' 
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro,Z
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  dcms-data:
+    name: dcms-data
+  caddy-data:
+  caddy-config:

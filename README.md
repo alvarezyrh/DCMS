@@ -128,6 +128,43 @@ Semua pengaturan produksi lewat variabel lingkungan:
   (object/base/frame-ancestors), `Permissions-Policy`, `Cross-Origin-Opener-Policy`, dan HSTS di HTTPS.
 - Pembatasan peran diperiksa di server (User tidak bisa menerbitkan, mengedit milik orang lain, atau membuka menu staf).
 
+## Menjalankan dengan Docker
+
+Butuh Docker Engine + plugin Compose. Semua diatur di `docker-compose.yml` (image dari `Dockerfile`).
+
+**Coba di komputer sendiri** (tanpa HTTPS):
+
+```bash
+cp .env.example .env        # isi CMS_ADMIN_PASSWORD (opsional; tanpa itu password admin = admin12345)
+docker compose up -d --build
+docker compose logs -f dcms # tunggu "DCMS berjalan di port 3000"
+```
+
+Buka <http://localhost:8080/admin> dan login sebagai `admin`. Port diatur lewat `DCMS_PORT` di `.env`;
+bawaan hanya bisa diakses dari komputer ini (`DCMS_BIND=127.0.0.1`).
+
+**Server produksi dengan HTTPS** (Caddy + Let's Encrypt; domain harus sudah mengarah ke server). Di `.env`
+aktifkan `DCMS_DOMAIN`, `CMS_SITE_URL=https://domain-anda`, dan `CMS_TRUST_PROXY=1`, lalu:
+
+```bash
+docker compose --profile https up -d --build
+```
+
+Perintah berguna:
+
+```bash
+docker compose ps                                # status & health
+docker compose up -d --build                     # update setelah git pull
+docker compose down                              # berhenti (data tetap ada di volume dcms-data)
+docker cp cms.db dcms:/data/cms.db && docker restart dcms   # pakai database lama
+docker run --rm -v dcms-data:/data -v "$PWD":/backup debian:bookworm-slim \
+  tar czf /backup/dcms-$(date +%F).tar.gz -C /data .        # backup volume
+```
+
+Ingin memakai folder host sebagai data? Ganti `dcms-data:/data` di `docker-compose.yml` dengan mis.
+`/srv/dcms:/data` (tambah `:Z` bila SELinux aktif). Pemilik isinya (termasuk `cms.db` lama) dirapikan
+otomatis saat kontainer mulai.
+
 ## Deploy dengan Podman di AWS
 
 Rekomendasi: **satu instans EC2** (Amazon Linux 2023 atau Ubuntu 24.04) dengan disk EBS. Database SQLite
@@ -135,10 +172,10 @@ butuh disk lokal yang awet, jadi ECS Fargate/App Runner tanpa disk tetap **tidak
 
 Berkas yang disediakan:
 
-- `Containerfile` — image dua tahap (build Haskell → runtime Debian slim, user non-root, healthcheck).
-- `deploy/compose.yaml` — DCMS + Caddy (HTTPS otomatis Let's Encrypt).
+- `Dockerfile` — image dua tahap (build Haskell → runtime Debian slim, aplikasi berjalan sebagai user non-root, healthcheck). Dipakai Docker maupun Podman.
+- `docker-compose.yml` — DCMS (+ Caddy HTTPS otomatis dengan `--profile https`), untuk Docker atau `podman compose`.
 - `deploy/quadlet/` — unit systemd (Podman Quadlet): jalan otomatis saat boot dan restart bila crash.
-- `deploy/Caddyfile`, `deploy/.env.example`.
+- `deploy/Caddyfile`, `.env.example`.
 
 **1. Siapkan EC2**
 
@@ -174,7 +211,7 @@ sudo podman logs dcms                   # cek "[config] … cookie Secure: True"
 Buka `https://contoh.id/admin`, login sebagai `admin`, lalu **segera ganti password** di menu Profil.
 Di menu **SEO & Analitik → Integrasi**, kirim `https://contoh.id/sitemap.xml` ke Google Search Console.
 
-Alternatif tanpa systemd: `cd deploy && cp .env.example .env` (isi), lalu `podman compose up -d`.
+Alternatif tanpa systemd: `cp .env.example .env` (isi), lalu `podman compose --profile https up -d`.
 
 **Memindahkan data lama (opsional)** — salin `cms.db` dan folder gambar ke volume, lalu nyalakan:
 
@@ -183,7 +220,7 @@ sudo systemctl stop dcms
 sudo podman volume create dcms-data
 sudo cp cms.db "$(sudo podman volume inspect dcms-data --format '{{.Mountpoint}}')/cms.db"
 sudo cp -r src/asset/img "$(sudo podman volume inspect dcms-data --format '{{.Mountpoint}}')/assets"
-sudo systemctl start dcms     # opsi :U di unit otomatis menyesuaikan pemilik berkas
+sudo systemctl start dcms     # pemilik berkas dirapikan otomatis saat kontainer mulai
 ```
 
 **4. Update aplikasi**
@@ -203,12 +240,14 @@ sudo systemctl stop dcms && sudo podman volume export dcms-data > dcms-$(date +%
 
 **Pemecahan masalah: "readonly" / "Permission denied"**
 
-Aplikasi di dalam kontainer berjalan sebagai user `dcms` (uid 10001), bukan root. Bila isi volume dimiliki
-user lain (mis. `cms.db` disalin sebagai root, atau memakai folder host), muncul `attempt to write a readonly
-database` atau `Permission denied`, dan log kontainer menampilkan `GALAT: …` beserta cara memperbaikinya.
+Aplikasi berjalan sebagai user `dcms` (uid 10001), bukan root. Saat kontainer mulai, entrypoint merapikan
+pemilik isi `/data` (mis. `cms.db` yang disalin sebagai root, atau folder host) lalu menurunkan hak ke user
+tersebut, jadi biasanya tidak perlu apa-apa. Bila tetap muncul `attempt to write a readonly database` atau
+`Permission denied`, log kontainer menampilkan `GALAT: …` beserta cara memperbaikinya:
 
-- Pasang volume dengan opsi **`:U`** (sudah ada di `deploy/quadlet/dcms.container` dan `deploy/compose.yaml`):
-  `-v dcms-data:/data:U`. Untuk folder host: `-v /srv/dcms:/data:U,Z` (`Z` untuk SELinux).
+- Jangan jalankan dengan `--user`/`user:` lain, dan jangan buang hak `CHOWN`, `SETUID`, `SETGID` (sudah
+  diatur di `docker-compose.yml` dan `deploy/quadlet/dcms.container`).
 - Atau ubah pemilik di host: `sudo chown -R 10001:10001 <folder-data>`.
-- Pesan `Read-only file system` saat menulis ke luar `/data` itu disengaja (`ReadOnly=true`); semua data
-  aplikasi memang disimpan di `/data`.
+- SELinux (Fedora/RHEL) dengan folder host: tambahkan `:Z`, mis. `-v /srv/dcms:/data:Z`.
+- Pesan `Read-only file system` saat menulis ke luar `/data` itu disengaja (root filesystem hanya-baca);
+  semua data aplikasi memang disimpan di `/data`.

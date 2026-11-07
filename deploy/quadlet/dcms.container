@@ -8,14 +8,15 @@ Wants=network-online.target
 Image=localhost/dcms:latest
 ContainerName=dcms
 Network=dcms.network
-# :U = Podman menyesuaikan pemilik isi volume dengan user aplikasi (uid 10001).
-Volume=dcms-data.volume:/data:U
+Volume=dcms-data.volume:/data
 # Berisi DCMS_DOMAIN, CMS_SITE_URL, CMS_ADMIN_PASSWORD (izin file 600).
 EnvironmentFile=/etc/dcms/dcms.env
 Environment=CMS_TRUST_PROXY=1
 ReadOnly=true
 Tmpfs=/tmp
+# Entrypoint butuh hak ini sesaat untuk merapikan pemilik /data lalu turun ke user dcms.
 DropCapability=ALL
+AddCapability=CHOWN DAC_OVERRIDE FOWNER SETUID SETGID
 NoNewPrivileges=true
 HealthCmd=curl -fsS -o /dev/null http://127.0.0.1:3000/robots.txt
 HealthInterval=30s

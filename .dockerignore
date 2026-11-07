@@ -6,5 +6,5 @@ dist-newstyle/
 src/asset/img/*
 !src/asset/img/placeholder.svg
 .git/
-deploy/.env
+.env
 *.log

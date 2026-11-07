@@ -1,8 +1,10 @@
-# DCMS: image produksi (Podman/Docker). Build dua tahap: kompilasi Haskell, lalu
-# image kecil berisi binary + aset statis saja.
-#   podman build --format docker -t localhost/dcms:latest .
-#   podman run -d -p 3000:3000 -v dcms-data:/data:U -e CMS_ADMIN_PASSWORD=... localhost/dcms:latest
-# (--format docker agar HEALTHCHECK ikut tersimpan; format OCI mengabaikannya.)
+# DCMS: image produksi untuk Docker maupun Podman. Build dua tahap: kompilasi
+# Haskell, lalu image kecil berisi binary + aset statis saja.
+#   docker build -t dcms .
+#   docker run -d -p 3000:3000 -v dcms-data:/data -e CMS_ADMIN_PASSWORD=... dcms
+# Podman: podman build --format docker -t dcms .   (agar HEALTHCHECK ikut tersimpan)
+# Kontainer mulai sebagai root hanya untuk merapikan pemilik /data, lalu entrypoint
+# menurunkan hak ke user "dcms" (uid 10001) sebelum aplikasi dijalankan.
 
 # --- Tahap 1: build ---------------------------------------------------------------
 FROM docker.io/library/haskell:9.10.3-slim-bookworm AS build
@@ -24,9 +26,10 @@ RUN cabal build exe:DCMS -j \
 # --- Tahap 2: runtime -------------------------------------------------------------
 FROM docker.io/library/debian:bookworm-slim
 RUN apt-get update \
- && apt-get install -y --no-install-recommends libgmp10 zlib1g ca-certificates curl \
+ && apt-get install -y --no-install-recommends libgmp10 zlib1g ca-certificates curl util-linux \
  && rm -rf /var/lib/apt/lists/* \
- && useradd --system --uid 10001 --home-dir /app --shell /usr/sbin/nologin dcms \
+ && groupadd --system --gid 10001 dcms \
+ && useradd --system --uid 10001 --gid 10001 --home-dir /app --shell /usr/sbin/nologin dcms \
  && mkdir -p /data/assets \
  && chown -R dcms:dcms /data
 WORKDIR /app
@@ -39,7 +42,6 @@ ENV LANG=C.UTF-8 \
     CMS_DB=/data/cms.db \
     CMS_ASSETS=/data/assets \
     CMS_STATIC=/app/static
-USER dcms
 VOLUME ["/data"]
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
