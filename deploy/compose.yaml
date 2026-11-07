@@ -31,9 +31,9 @@ services:
     depends_on:
       - dcms
     ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
+      - "9000:80"
+      - "9090:443"
+      - "9090:443/udp"
     environment:
       DCMS_DOMAIN: ${DCMS_DOMAIN}
     volumes:
