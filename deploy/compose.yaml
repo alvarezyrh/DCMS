@@ -12,7 +12,8 @@ services:
       CMS_TRUST_PROXY: "1"
       CMS_ADMIN_PASSWORD: ${CMS_ADMIN_PASSWORD}
     volumes:
-      - dcms-data:/data
+      # :U = Podman menyesuaikan pemilik isi volume dengan user aplikasi (uid 10001).
+      - dcms-data:/data:U
     # Tidak dibuka ke internet; hanya Caddy yang mengaksesnya.
     expose:
       - "3000"

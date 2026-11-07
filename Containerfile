@@ -1,7 +1,7 @@
 # DCMS: image produksi (Podman/Docker). Build dua tahap: kompilasi Haskell, lalu
 # image kecil berisi binary + aset statis saja.
 #   podman build --format docker -t localhost/dcms:latest .
-#   podman run -d -p 3000:3000 -v dcms-data:/data -e CMS_ADMIN_PASSWORD=... localhost/dcms:latest
+#   podman run -d -p 3000:3000 -v dcms-data:/data:U -e CMS_ADMIN_PASSWORD=... localhost/dcms:latest
 # (--format docker agar HEALTHCHECK ikut tersimpan; format OCI mengabaikannya.)
 
 # --- Tahap 1: build ---------------------------------------------------------------
@@ -44,4 +44,4 @@ VOLUME ["/data"]
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
   CMD curl -fsS -o /dev/null http://127.0.0.1:3000/robots.txt || exit 1
-ENTRYPOINT ["/app/entrypoint.sh"]
+ENTRYPOINT ["/bin/sh", "/app/entrypoint.sh"]

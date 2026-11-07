@@ -8,7 +8,8 @@ Wants=network-online.target
 Image=localhost/dcms:latest
 ContainerName=dcms
 Network=dcms.network
-Volume=dcms-data.volume:/data
+# :U = Podman menyesuaikan pemilik isi volume dengan user aplikasi (uid 10001).
+Volume=dcms-data.volume:/data:U
 # Berisi DCMS_DOMAIN, CMS_SITE_URL, CMS_ADMIN_PASSWORD (izin file 600).
 EnvironmentFile=/etc/dcms/dcms.env
 Environment=CMS_TRUST_PROXY=1

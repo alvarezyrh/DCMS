@@ -176,6 +176,16 @@ Di menu **SEO & Analitik → Integrasi**, kirim `https://contoh.id/sitemap.xml` 
 
 Alternatif tanpa systemd: `cd deploy && cp .env.example .env` (isi), lalu `podman compose up -d`.
 
+**Memindahkan data lama (opsional)** — salin `cms.db` dan folder gambar ke volume, lalu nyalakan:
+
+```bash
+sudo systemctl stop dcms
+sudo podman volume create dcms-data
+sudo cp cms.db "$(sudo podman volume inspect dcms-data --format '{{.Mountpoint}}')/cms.db"
+sudo cp -r src/asset/img "$(sudo podman volume inspect dcms-data --format '{{.Mountpoint}}')/assets"
+sudo systemctl start dcms     # opsi :U di unit otomatis menyesuaikan pemilik berkas
+```
+
 **4. Update aplikasi**
 
 ```bash
@@ -190,3 +200,15 @@ harian lewat AWS Backup. Untuk salinan manual:
 ```bash
 sudo systemctl stop dcms && sudo podman volume export dcms-data > dcms-$(date +%F).tar && sudo systemctl start dcms
 ```
+
+**Pemecahan masalah: "readonly" / "Permission denied"**
+
+Aplikasi di dalam kontainer berjalan sebagai user `dcms` (uid 10001), bukan root. Bila isi volume dimiliki
+user lain (mis. `cms.db` disalin sebagai root, atau memakai folder host), muncul `attempt to write a readonly
+database` atau `Permission denied`, dan log kontainer menampilkan `GALAT: …` beserta cara memperbaikinya.
+
+- Pasang volume dengan opsi **`:U`** (sudah ada di `deploy/quadlet/dcms.container` dan `deploy/compose.yaml`):
+  `-v dcms-data:/data:U`. Untuk folder host: `-v /srv/dcms:/data:U,Z` (`Z` untuk SELinux).
+- Atau ubah pemilik di host: `sudo chown -R 10001:10001 <folder-data>`.
+- Pesan `Read-only file system` saat menulis ke luar `/data` itu disengaja (`ReadOnly=true`); semua data
+  aplikasi memang disimpan di `/data`.
