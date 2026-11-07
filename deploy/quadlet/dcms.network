@@ -1,0 +1,3 @@
+# Jaringan internal antara Caddy dan DCMS.
+[Network]
+NetworkName=dcms

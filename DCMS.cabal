@@ -1,0 +1,77 @@
+cabal-version:      3.0
+name:               DCMS
+version:            0.1.0.0
+synopsis:           CMS web CRUD sederhana berbasis WAI/Warp + SQLite
+license:            MIT
+build-type:         Simple
+extra-doc-files:    README.md
+
+common shared
+  default-language:   Haskell2010
+  default-extensions:
+    OverloadedStrings
+    LambdaCase
+    ScopedTypeVariables
+    RecordWildCards
+    MultiWayIf
+  ghc-options:        -Wall -Wno-name-shadowing
+
+library
+  import:           shared
+  hs-source-dirs:   src
+  exposed-modules:
+    CMS.RateLimit
+    CMS.Types
+    CMS.Blocks
+    CMS.NavStyle
+    CMS.Seo
+    CMS.Analytics
+    CMS.DB
+    CMS.Auth
+    CMS.Util
+    CMS.Upload
+    CMS.Status
+    CMS.Web
+    CMS.Views.Layout
+    CMS.Views.Public
+    CMS.Views.Site
+    CMS.Views.SeoAdmin
+    CMS.Views.Admin
+    CMS.Handlers.Public
+    CMS.Handlers.Admin
+    CMS.App
+  build-depends:
+      base               >=4.16 && <5
+    , bytestring
+    , text
+    , time
+    , filepath
+    , wai                >=3.2
+    , wai-extra          >=3.1
+    , warp               >=3.3
+    , http-types
+    , cookie             >=0.4.5
+    , lucid              >=2.9
+    , sqlite-simple      >=0.4.18
+    , crypton            >=0.33
+    , base16-bytestring  >=1.0
+    , cmark              >=0.6
+    , aeson              >=2.0
+    , containers
+    , directory
+
+executable DCMS
+  import:           shared
+  hs-source-dirs:   app
+  main-is:          Main.hs
+  ghc-options:      -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      base
+    , DCMS
+    , text
+    , wai
+    , warp
+    , wai-extra
+    , directory
+    , time
+    , unix

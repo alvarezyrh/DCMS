@@ -1,0 +1,28 @@
+# Salin ke /etc/containers/systemd/ lalu: systemctl daemon-reload && systemctl start dcms
+[Unit]
+Description=DCMS (CMS Haskell)
+After=network-online.target
+Wants=network-online.target
+
+[Container]
+Image=localhost/dcms:latest
+ContainerName=dcms
+Network=dcms.network
+Volume=dcms-data.volume:/data
+# Berisi DCMS_DOMAIN, CMS_SITE_URL, CMS_ADMIN_PASSWORD (izin file 600).
+EnvironmentFile=/etc/dcms/dcms.env
+Environment=CMS_TRUST_PROXY=1
+ReadOnly=true
+Tmpfs=/tmp
+DropCapability=ALL
+NoNewPrivileges=true
+HealthCmd=curl -fsS -o /dev/null http://127.0.0.1:3000/robots.txt
+HealthInterval=30s
+HealthStartPeriod=15s
+
+[Service]
+Restart=always
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target

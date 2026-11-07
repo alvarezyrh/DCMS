@@ -1,0 +1,10 @@
+# Jangan ikut masuk ke image: hasil build lokal, database, dan unggahan.
+dist-newstyle/
+*.db
+*.db-wal
+*.db-shm
+src/asset/img/*
+!src/asset/img/placeholder.svg
+.git/
+deploy/.env
+*.log

@@ -1,0 +1,46 @@
+# Jalankan dengan: cd deploy && podman compose up -d   (atau podman-compose up -d)
+# Butuh file deploy/.env (lihat .env.example) dan DNS domain sudah mengarah ke server.
+services:
+  dcms:
+    image: localhost/dcms:latest
+    build:
+      context: ..
+      dockerfile: Containerfile
+    restart: unless-stopped
+    environment:
+      CMS_SITE_URL: https://${DCMS_DOMAIN}
+      CMS_TRUST_PROXY: "1"
+      CMS_ADMIN_PASSWORD: ${CMS_ADMIN_PASSWORD}
+    volumes:
+      - dcms-data:/data
+    # Tidak dibuka ke internet; hanya Caddy yang mengaksesnya.
+    expose:
+      - "3000"
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges
+
+  caddy:
+    image: docker.io/library/caddy:2.10-alpine
+    restart: unless-stopped
+    depends_on:
+      - dcms
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DCMS_DOMAIN: ${DCMS_DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro,Z
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  dcms-data:
+  caddy-data:
+  caddy-config:

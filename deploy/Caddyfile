@@ -1,0 +1,17 @@
+# Reverse proxy + HTTPS otomatis (Let's Encrypt). Ganti domain di file .env.
+{$DCMS_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy dcms:3000
+	# Batas ukuran unggahan (gambar maks. 2 MB, sisakan ruang untuk form).
+	request_body {
+		max_size 4MB
+	}
+	log {
+		output stdout
+	}
+}
+
+# Arahkan www ke domain utama.
+www.{$DCMS_DOMAIN} {
+	redir https://{$DCMS_DOMAIN}{uri} permanent
+}

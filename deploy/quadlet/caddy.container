@@ -1,0 +1,23 @@
+# Reverse proxy HTTPS di depan DCMS. Salin bersama dcms.container.
+[Unit]
+Description=Caddy (HTTPS untuk DCMS)
+After=dcms.service
+Requires=dcms.service
+
+[Container]
+Image=docker.io/library/caddy:2.10-alpine
+ContainerName=caddy
+Network=dcms.network
+PublishPort=80:80
+PublishPort=443:443
+PublishPort=443:443/udp
+EnvironmentFile=/etc/dcms/dcms.env
+Volume=/etc/dcms/Caddyfile:/etc/caddy/Caddyfile:ro,Z
+Volume=caddy-data:/data
+Volume=caddy-config:/config
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
