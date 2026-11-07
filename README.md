@@ -28,6 +28,13 @@ database **SQLite**, HTML dari **Lucid**, password **bcrypt**, dan konten **Mark
   situs lain) tanpa cookie, halaman terpopuler, audit skor SEO semua artikel, serta integrasi Google Search
   Console, Bing, Google Analytics 4, `sitemap.xml`, dan `robots.txt` otomatis. Ringkasannya tampil sebagai
   widget di dashboard.
+- **Menu Cabang** (Admin & Editor): kelola cabang/outlet (alamat, telepon & WhatsApp, jam, catatan, tautan peta,
+  urutan, aktif/nonaktif). Halaman `/branch` menampilkannya lewat blok **Direktori cabang**: dikelompokkan per
+  provinsi, dengan pencarian, filter provinsi (bisa ditautkan: `/branch?provinsi=Bali`, `/branch?cari=surabaya`),
+  tombol WhatsApp/peta/rute, dan data terstruktur Store untuk Google. Berisi awal 122 outlet.
+  Setiap cabang bernomor urut; tombol **Urutkan dari terdekat** memakai lokasi pengunjung (izin browser,
+  butuh HTTPS) untuk menomori cabang dari yang terdekat sampai terjauh, lengkap dengan jaraknya.
+  Koordinat cabang diatur di form Cabang (atau diambil otomatis dari tautan Google Maps lengkap).
 - **Popup gambar**: gambar di halaman dan artikel bisa diklik untuk dibuka besar (tombol panah, Esc untuk
   menutup). Bisa dimatikan di panel Tampilan situs.
 - **Blok Kode custom**: HTML, CSS, dan JavaScript sendiri di page builder. Dijalankan di iframe sandbox
@@ -60,6 +67,9 @@ Buka <http://localhost:3000>. Saat database pertama kali dibuat, akun admin dibu
 - password: `admin12345` (atau nilai `CMS_ADMIN_PASSWORD`)
 
 Segera ganti password lewat **Profil**.
+
+Lupa password? Jalankan `cabal run DCMS -- reset-password admin` (atau di Docker:
+`docker compose exec -u 10001 dcms /app/DCMS reset-password admin`). Semua sesi pengguna itu ikut dikeluarkan.
 
 ### Variabel lingkungan
 
@@ -157,6 +167,7 @@ docker compose ps                                # status & health
 docker compose up -d --build                     # update setelah git pull
 docker compose down                              # berhenti (data tetap ada di volume dcms-data)
 docker cp cms.db dcms:/data/cms.db && docker restart dcms   # pakai database lama
+docker compose exec -u 10001 dcms /app/DCMS reset-password admin  # lupa password (diketik)
 docker run --rm -v dcms-data:/data -v "$PWD":/backup debian:bookworm-slim \
   tar czf /backup/dcms-$(date +%F).tar.gz -C /data .        # backup volume
 ```

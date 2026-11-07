@@ -23,6 +23,7 @@ library
     CMS.RateLimit
     CMS.Types
     CMS.Blocks
+    CMS.BranchSeed
     CMS.NavStyle
     CMS.Seo
     CMS.Analytics
@@ -36,6 +37,7 @@ library
     CMS.Views.Public
     CMS.Views.Site
     CMS.Views.SeoAdmin
+    CMS.Views.BranchAdmin
     CMS.Views.Admin
     CMS.Handlers.Public
     CMS.Handlers.Admin

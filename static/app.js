@@ -239,6 +239,219 @@
   document.addEventListener("focusout", hideTip);
   window.addEventListener("scroll", hideTip, { passive: true });
 
+  // ---------- Direktori cabang: pencarian, filter provinsi, urutan terdekat ----------
+  // Kartu yang terlihat selalu dinomori 1, 2, 3… sesuai urutan tampil. Mode "terdekat"
+  // memakai lokasi pengunjung (izin browser) dan jarak garis lurus (haversine).
+  document.querySelectorAll("[data-branch-dir]").forEach(function (dir) {
+    var search = dir.querySelector("[data-bd-search]");
+    var prov = dir.querySelector("[data-bd-prov]");
+    var count = dir.querySelector("[data-bd-count]");
+    var empty = dir.querySelector("[data-bd-empty]");
+    var flat = dir.querySelector("[data-bd-flat]");
+    var nearBtn = dir.querySelector("[data-bd-near]");
+    var geoMsg = dir.querySelector("[data-bd-geo-msg]");
+    var groups = Array.prototype.slice.call(dir.querySelectorAll("[data-bd-group]"));
+    var cards = Array.prototype.slice.call(dir.querySelectorAll("[data-bd-item]"));
+    var total = cards.length;
+    var nearest = false;
+    // Posisi asli tiap kartu (untuk kembali ke urutan per wilayah).
+    var home = cards.map(function (c) { return { card: c, grid: c.parentNode }; });
+
+    var params = new URLSearchParams(location.search);
+    if (params.get("cari")) search.value = params.get("cari");
+    if (params.get("provinsi")) prov.value = params.get("provinsi");
+
+    var matches = function (card, words, p) {
+      var q = card.getAttribute("data-q");
+      return (!p || card.getAttribute("data-province") === p) && words.every(function (w) { return q.indexOf(w) >= 0; });
+    };
+    // Simpan provinsi di kartu agar filter tetap jalan saat kartu dipindah ke daftar "terdekat".
+    groups.forEach(function (g) {
+      g.querySelectorAll("[data-bd-item]").forEach(function (c) { c.setAttribute("data-province", g.getAttribute("data-bd-group")); });
+    });
+
+    var renumber = function () {
+      var n = 0;
+      var order = nearest ? Array.prototype.slice.call(flat.children)
+        : groups.reduce(function (a, g) { return a.concat(Array.prototype.slice.call(g.querySelectorAll("[data-bd-item]"))); }, []);
+      order.forEach(function (c) {
+        if (c.hidden) return;
+        n++;
+        var num = c.querySelector("[data-bd-num]");
+        num.textContent = n;
+        num.setAttribute("aria-label", "Nomor " + n);
+      });
+      return n;
+    };
+
+    var apply = function () {
+      var words = search.value.toLowerCase().trim().split(/\s+/).filter(Boolean);
+      var p = prov.value, shownGroups = 0;
+      cards.forEach(function (c) { c.hidden = !matches(c, words, p); });
+      if (!nearest) {
+        groups.forEach(function (g) {
+          var n = g.querySelectorAll("[data-bd-item]:not([hidden])").length;
+          g.hidden = n === 0;
+          g.querySelector("[data-bd-group-n]").textContent = n + " outlet";
+          if (n) shownGroups++;
+        });
+      }
+      var shown = renumber();
+      empty.hidden = shown > 0;
+      if (nearest) count.textContent = "Menampilkan " + shown + " outlet, diurutkan dari yang terdekat";
+      else count.textContent = shown === total && !p
+        ? "Menampilkan " + count.getAttribute("data-total")
+        : "Menampilkan " + shown + " dari " + total + " outlet" + (shownGroups > 1 ? " di " + shownGroups + " provinsi" : "");
+    };
+
+    var fmtKm = function (km) {
+      if (km < 1) return "± " + Math.max(50, Math.round(km * 1000 / 50) * 50) + " m";
+      return "± " + (km < 10 ? km.toFixed(1).replace(".", ",") : Math.round(km).toLocaleString("id-ID")) + " km";
+    };
+    var haversine = function (a, b, c, d) {
+      var R = 6371, rad = Math.PI / 180;
+      var dLat = (c - a) * rad, dLng = (d - b) * rad;
+      var x = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(a * rad) * Math.cos(c * rad) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+      return 2 * R * Math.asin(Math.sqrt(x));
+    };
+    var say = function (msg, isError) {
+      geoMsg.textContent = msg;
+      geoMsg.hidden = !msg;
+      geoMsg.classList.toggle("is-error", !!isError);
+    };
+    var setNear = function (on) {
+      nearest = on;
+      nearBtn.setAttribute("aria-pressed", on ? "true" : "false");
+      nearBtn.classList.toggle("is-on", on);
+      nearBtn.querySelector("[data-bd-near-label]").textContent = on ? "Urutan per wilayah" : "Urutkan dari terdekat";
+    };
+
+    var sortByDistance = function (lat, lng) {
+      var withD = cards.map(function (c) {
+        var la = parseFloat(c.getAttribute("data-lat")), lo = parseFloat(c.getAttribute("data-lng"));
+        var d = isNaN(la) || isNaN(lo) ? Infinity : haversine(lat, lng, la, lo);
+        var label = c.querySelector("[data-bd-dist]");
+        label.textContent = isFinite(d) ? fmtKm(d) : "";
+        label.hidden = !isFinite(d);
+        return { c: c, d: d };
+      });
+      withD.sort(function (a, b) { return a.d - b.d; });
+      withD.forEach(function (x) { flat.appendChild(x.c); });
+      flat.hidden = false;
+      groups.forEach(function (g) { g.hidden = true; });
+      setNear(true);
+      apply();
+      var first = withD[0];
+      if (first && isFinite(first.d)) say("Diurutkan dari lokasi Anda. Terdekat: " + first.c.querySelector(".bd-name").firstChild.textContent.trim() + " (" + fmtKm(first.d) + ").");
+    };
+
+    var byRegion = function () {
+      home.forEach(function (h) { h.grid.appendChild(h.card); h.card.querySelector("[data-bd-dist]").hidden = true; });
+      flat.hidden = true;
+      setNear(false);
+      say("");
+      apply();
+    };
+
+    var locate = function () {
+      if (!navigator.geolocation) return say("Browser ini tidak mendukung lokasi.", true);
+      if (!window.isSecureContext) return say("Fitur lokasi hanya bekerja di situs HTTPS.", true);
+      nearBtn.disabled = true;
+      say("Mencari lokasi Anda…");
+      navigator.geolocation.getCurrentPosition(function (pos) {
+        nearBtn.disabled = false;
+        sortByDistance(pos.coords.latitude, pos.coords.longitude);
+      }, function (err) {
+        nearBtn.disabled = false;
+        say(err.code === 1
+          ? "Izin lokasi ditolak. Izinkan akses lokasi di browser untuk mengurutkan cabang dari yang terdekat."
+          : "Lokasi Anda tidak bisa ditentukan. Coba lagi sebentar.", true);
+      }, { enableHighAccuracy: false, timeout: 12000, maximumAge: 600000 });
+    };
+
+    if (nearBtn) {
+      nearBtn.addEventListener("click", function () { if (nearest) byRegion(); else locate(); });
+      // Izin lokasi sudah pernah diberikan: langsung urutkan dari yang terdekat.
+      if (navigator.permissions && navigator.permissions.query && !document.body.classList.contains("pb-editing")) {
+        navigator.permissions.query({ name: "geolocation" }).then(function (st) {
+          if (st.state === "granted") locate();
+        }).catch(function () {});
+      }
+    }
+
+    var t = null;
+    search.addEventListener("input", function () { clearTimeout(t); t = setTimeout(apply, 120); });
+    prov.addEventListener("change", apply);
+    // Uji/otomatis: ?dekat=lat,lng mengurutkan dari titik tersebut.
+    var near = (params.get("dekat") || "").split(",").map(parseFloat);
+    if (near.length === 2 && !isNaN(near[0]) && !isNaN(near[1])) sortByDistance(near[0], near[1]);
+    else if (search.value || prov.value) apply();
+  });
+
+  // ---------- Popup peta cabang ([data-map-q]) ----------
+  var mapModal = null;
+  var mapEmbed = function (q) {
+    return "https://maps.google.com/maps?q=" + encodeURIComponent(q) + "&z=16&output=embed";
+  };
+  var closeMap = function () {
+    if (!mapModal || mapModal.hidden) return;
+    mapModal.hidden = true;
+    mapModal.querySelector("iframe").src = "about:blank";
+    document.documentElement.classList.remove("lb-open");
+  };
+  document.addEventListener("click", function (e) {
+    var btn = e.target.closest && e.target.closest("[data-map-q]");
+    if (!btn || document.body.classList.contains("pb-editing")) return;
+    e.preventDefault();
+    if (!mapModal) {
+      mapModal = document.createElement("div");
+      mapModal.className = "map-modal";
+      mapModal.setAttribute("role", "dialog");
+      mapModal.setAttribute("aria-modal", "true");
+      mapModal.innerHTML =
+        '<div class="map-modal-box"><div class="map-modal-head"><strong class="map-modal-title"></strong>' +
+        '<a class="btn btn-sm map-modal-route" target="_blank" rel="noopener"><i class="fa-solid fa-diamond-turn-right"></i> Rute</a>' +
+        '<button type="button" class="lb-btn map-modal-close" aria-label="Tutup peta"><i class="fa-solid fa-xmark"></i></button></div>' +
+        '<iframe title="Peta lokasi" loading="lazy" referrerpolicy="no-referrer-when-downgrade" allowfullscreen></iframe></div>';
+      document.body.appendChild(mapModal);
+      mapModal.addEventListener("click", function (ev) {
+        if (ev.target === mapModal || ev.target.closest(".map-modal-close")) closeMap();
+      });
+      document.addEventListener("keydown", function (ev) { if (ev.key === "Escape") closeMap(); });
+    }
+    var url = btn.getAttribute("data-map-url");
+    var route = mapModal.querySelector(".map-modal-route");
+    route.hidden = !url;
+    if (url) route.href = url;
+    mapModal.querySelector(".map-modal-title").textContent = btn.getAttribute("data-map-title") || "Lokasi";
+    mapModal.querySelector("iframe").src = mapEmbed(btn.getAttribute("data-map-q"));
+    mapModal.hidden = false;
+    document.documentElement.classList.add("lb-open");
+    mapModal.querySelector(".map-modal-close").focus();
+  });
+
+  // ---------- Form cabang: pratinjau peta dari kata kunci ----------
+  var mapQ = document.querySelector("[data-map-preview-q]");
+  var mapBox = document.querySelector("[data-map-preview]");
+  if (mapQ && mapBox) {
+    var mt = null;
+    mapQ.addEventListener("input", function () {
+      clearTimeout(mt);
+      mt = setTimeout(function () {
+        var q = mapQ.value.trim();
+        if (!q) { mapBox.textContent = ""; return; }
+        var f = mapBox.querySelector("iframe");
+        if (!f) {
+          f = document.createElement("iframe");
+          f.title = "Pratinjau peta";
+          f.loading = "lazy";
+          mapBox.appendChild(f);
+        }
+        f.src = mapEmbed(q);
+      }, 700);
+    });
+  }
+
   // ---------- Slider ----------
   function slidesOf(slider) {
     return Array.prototype.slice.call(slider.querySelectorAll(".slides > .slide"));

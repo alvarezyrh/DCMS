@@ -145,6 +145,57 @@ instance FromRow Post where
       <*> field <*> field <*> field <*> field <*> field <*> field <*> field
       <*> (PostSeo <$> field <*> field <*> field <*> field <*> field)
 
+-- | Cabang/outlet (menu Cabang di dashboard, tampil di halaman /branch).
+data Branch = Branch
+  { brId :: Int
+  , brName :: Text -- nama outlet, mis. "Pondok Indah"
+  , brCity :: Text -- kota/wilayah, mis. "Jakarta Selatan"
+  , brProvince :: Text
+  , brAddress :: Text
+  , brPhone :: Text
+  , brPhone2 :: Text
+  , brWhatsapp :: Text -- nomor WA format internasional tanpa "+"; kosong = dari telepon
+  , brHours :: Text -- mis. "10.00–21.00 WIB"
+  , brNote :: Text -- mis. "Buka setiap hari"
+  , brMapsUrl :: Text -- tautan "Petunjuk arah" (Google Maps)
+  , brMapsQuery :: Text -- kata kunci peta untuk sematan, mis. "Raja Emas Pondok Indah"
+  , brSort :: Int
+  , brActive :: Bool
+  , brUpdated :: Text
+  , brLat :: Maybe Double -- koordinat untuk urutan "terdekat"
+  , brLng :: Maybe Double
+  }
+
+instance FromRow Branch where
+  fromRow =
+    Branch <$> field <*> field <*> field <*> field <*> field <*> field <*> field <*> field
+      <*> field <*> field <*> field <*> field <*> field <*> field <*> field <*> field <*> field
+
+-- | Isian form cabang (buat & ubah) dan data awal.
+data BranchInput = BranchInput
+  { biName, biCity, biProvince, biAddress, biPhone, biPhone2, biWhatsapp, biHours, biNote, biMapsUrl, biMapsQuery :: Text
+  , biSort :: Int
+  , biActive :: Bool
+  , biLat, biLng :: Maybe Double
+  }
+
+emptyBranchInput :: BranchInput
+emptyBranchInput = BranchInput "" "" "" "" "" "" "" "" "Buka setiap hari" "" "" 0 True Nothing Nothing
+
+branchToInput :: Branch -> BranchInput
+branchToInput Branch {..} =
+  BranchInput brName brCity brProvince brAddress brPhone brPhone2 brWhatsapp brHours brNote brMapsUrl brMapsQuery brSort brActive brLat brLng
+
+-- | Daftar provinsi Indonesia (pilihan di form cabang).
+provinces :: [Text]
+provinces =
+  [ "Aceh", "Sumatera Utara", "Sumatera Barat", "Riau", "Kepulauan Riau", "Jambi", "Bengkulu", "Sumatera Selatan"
+  , "Kepulauan Bangka Belitung", "Lampung", "Banten", "DKI Jakarta", "Jawa Barat", "Jawa Tengah", "DI Yogyakarta"
+  , "Jawa Timur", "Bali", "Nusa Tenggara Barat", "Nusa Tenggara Timur", "Kalimantan Barat", "Kalimantan Tengah"
+  , "Kalimantan Selatan", "Kalimantan Timur", "Kalimantan Utara", "Sulawesi Utara", "Gorontalo", "Sulawesi Tengah"
+  , "Sulawesi Barat", "Sulawesi Selatan", "Sulawesi Tenggara", "Maluku", "Maluku Utara", "Papua", "Papua Barat"
+  ]
+
 -- | Data form artikel (untuk buat & ubah).
 data PostInput = PostInput
   { piTitle :: Text

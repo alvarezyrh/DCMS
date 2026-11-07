@@ -4,12 +4,14 @@ module CMS.DB where
 import Control.Concurrent.MVar
 import Control.Monad (forM_, void, when)
 import Data.Maybe (catMaybes, fromMaybe, listToMaybe)
+import qualified Data.Map.Strict as M
 import Data.Text (Text)
 import qualified Data.Text as T
 import Database.SQLite.Simple
 import Database.SQLite.Simple.ToField (toField)
 
 import CMS.Blocks
+import CMS.BranchSeed (seedBranches)
 import CMS.NavStyle (decodeNav, encodeNav)
 import CMS.Types
 
@@ -47,6 +49,38 @@ migrate conn = do
                 \ engine TEXT NOT NULL DEFAULT '', views INTEGER NOT NULL DEFAULT 0,\
                 \ PRIMARY KEY (day, path, source, engine))"
   execute_ conn "DELETE FROM page_views WHERE day < date('now', '-400 days')"
+  -- Cabang/outlet.
+  execute_ conn "CREATE TABLE IF NOT EXISTS branches (\
+                \ id INTEGER PRIMARY KEY AUTOINCREMENT,\
+                \ name TEXT NOT NULL, city TEXT NOT NULL DEFAULT '', province TEXT NOT NULL DEFAULT '',\
+                \ address TEXT NOT NULL DEFAULT '', phone TEXT NOT NULL DEFAULT '', phone2 TEXT NOT NULL DEFAULT '',\
+                \ whatsapp TEXT NOT NULL DEFAULT '', hours TEXT NOT NULL DEFAULT '', note TEXT NOT NULL DEFAULT '',\
+                \ maps_url TEXT NOT NULL DEFAULT '', maps_query TEXT NOT NULL DEFAULT '',\
+                \ sort_order INTEGER NOT NULL DEFAULT 0, active INTEGER NOT NULL DEFAULT 1,\
+                \ updated_at TEXT NOT NULL DEFAULT (datetime('now')))"
+  execute_ conn "CREATE INDEX IF NOT EXISTS idx_branches_order ON branches(sort_order, id)"
+  forM_ ["lat", "lng"] $ \col -> do
+    has <- count1 conn "SELECT COUNT(*) FROM pragma_table_info('branches') WHERE name = ?" (Only (col :: Text))
+    when (has == 0) $ execute_ conn (Query ("ALTER TABLE branches ADD COLUMN " <> col <> " REAL"))
+  -- Data awal cabang: sekali saja (ditandai), agar tidak muncul lagi bila sengaja dihapus semua.
+  seeded <- count1 conn "SELECT COUNT(*) FROM settings WHERE key = 'branches_seeded'" ()
+  when (seeded == 0) $ withTransaction conn $ do
+    n <- count1 conn "SELECT COUNT(*) FROM branches" ()
+    when (n == 0) $ mapM_ (void . createBranch conn) seedBranches
+    execute_ conn "INSERT OR REPLACE INTO settings (key, value) VALUES ('branches_seeded', '1')"
+    execute_ conn "INSERT OR REPLACE INTO settings (key, value) VALUES ('branches_geo_v1', '1')"
+  -- Cabang hasil data awal versi sebelumnya: isi koordinat & perbaiki tautan peta yang
+  -- salah di sumber. Hanya baris yang cocok persis dan belum punya koordinat.
+  geoDone <- count1 conn "SELECT COUNT(*) FROM settings WHERE key = 'branches_geo_v1'" ()
+  when (geoDone == 0) $ withTransaction conn $ do
+    forM_ seedBranches $ \BranchInput {..} ->
+      execute
+        conn
+        "UPDATE branches SET lat = ?, lng = ?,\
+        \ maps_url = CASE WHEN ? LIKE 'https://www.google.com/maps/search/%' THEN ? ELSE maps_url END\
+        \ WHERE name = ? AND address = ? AND lat IS NULL"
+        (biLat, biLng, biMapsUrl, biMapsUrl, biName, biAddress)
+    execute_ conn "INSERT OR REPLACE INTO settings (key, value) VALUES ('branches_geo_v1', '1')"
   -- Gambar contoh pindah dari /static ke /asset/img.
   execute_ conn "UPDATE pages SET blocks = REPLACE(blocks, '/static/placeholder.svg', '/asset/img/placeholder.svg')\
                 \ WHERE blocks LIKE '%/static/placeholder.svg%'"
@@ -421,8 +455,22 @@ saveSettings c Settings {..} = withTransaction c $
 
 -- | Buat halaman bawaan yang belum ada (tidak menimpa yang sudah diedit).
 seedPages :: Connection -> IO ()
-seedPages c = forM_ sitePages $ \sp ->
-  execute c "INSERT OR IGNORE INTO pages (slug, title, blocks) VALUES (?,?,?)" (spSlug sp, spTitle sp, encodeBlocks (spDefaults sp))
+seedPages c = do
+  forM_ sitePages $ \sp ->
+    execute c "INSERT OR IGNORE INTO pages (slug, title, blocks) VALUES (?,?,?)" (spSlug sp, spTitle sp, encodeBlocks (spDefaults sp))
+  -- Sekali saja: halaman Branch memakai direktori cabang otomatis (dari menu Cabang)
+  -- menggantikan blok "Daftar cabang" yang diisi manual. Judulnya dipertahankan.
+  done <- count1 c "SELECT COUNT(*) FROM settings WHERE key = 'branch_page_dir'" ()
+  when (done == 0) $ do
+    mp <- findPage c "branch"
+    forM_ mp $ \pg -> do
+      let toDir b
+            | bType b == "branches" = b {bType = "branchdir", bFields = M.filterWithKey (\k _ -> k `elem` ["eyebrow", "title", "text"]) (bFields b), bItems = []}
+            | otherwise = b
+          blocks = map toDir (pageBlocks pg)
+          blocks' = if any ((== "branchdir") . bType) blocks then blocks else blocks ++ [Block "branchdir" (M.fromList [("eyebrow", ""), ("title", "Lokasi kami"), ("text", "")]) []]
+      savePageBlocks c "branch" blocks'
+    execute_ c "INSERT OR REPLACE INTO settings (key, value) VALUES ('branch_page_dir', '1')"
 
 findPage :: Connection -> Text -> IO (Maybe Page)
 findPage c slug = listToMaybe <$> query c "SELECT slug, title, blocks, updated_at FROM pages WHERE slug = ?" (Only slug)
@@ -511,3 +559,55 @@ allPostsForSeo c = query_ c (Query (postSelect <> " ORDER BY p.updated_at DESC")
 sitemapPosts :: Connection -> IO [(Text, Text)]
 sitemapPosts c =
   query_ c "SELECT slug, date(updated_at) FROM posts WHERE status = 'published' AND seo_noindex = 0 ORDER BY published_at DESC"
+
+-- Cabang ------------------------------------------------------------------------------
+
+branchSelect :: Query
+branchSelect =
+  "SELECT id, name, city, province, address, phone, phone2, whatsapp, hours, note, maps_url, maps_query,\
+  \ sort_order, active, updated_at, lat, lng FROM branches"
+
+-- | Semua cabang (dashboard), urut sesuai urutan tampil.
+listBranches :: Connection -> IO [Branch]
+listBranches c = query_ c (branchSelect <> " ORDER BY sort_order, id")
+
+-- | Cabang aktif (halaman publik).
+listActiveBranches :: Connection -> IO [Branch]
+listActiveBranches c = query_ c (branchSelect <> " WHERE active = 1 ORDER BY sort_order, id")
+
+findBranch :: Connection -> Int -> IO (Maybe Branch)
+findBranch c i = listToMaybe <$> query c (branchSelect <> " WHERE id = ?") (Only i)
+
+countBranches :: Connection -> IO Int
+countBranches c = count1 c "SELECT COUNT(*) FROM branches WHERE active = 1" ()
+
+branchFields :: BranchInput -> [SQLData]
+branchFields BranchInput {..} =
+  [ toField biName, toField biCity, toField biProvince, toField biAddress, toField biPhone, toField biPhone2
+  , toField biWhatsapp, toField biHours, toField biNote, toField biMapsUrl, toField biMapsQuery
+  , toField biSort, toField biActive, toField biLat, toField biLng ]
+
+createBranch :: Connection -> BranchInput -> IO Int
+createBranch c b = do
+  execute
+    c
+    "INSERT INTO branches (name, city, province, address, phone, phone2, whatsapp, hours, note,\
+    \ maps_url, maps_query, sort_order, active, lat, lng) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+    (branchFields b)
+  lastId c
+
+updateBranch :: Connection -> Int -> BranchInput -> IO ()
+updateBranch c i b =
+  execute
+    c
+    "UPDATE branches SET name = ?, city = ?, province = ?, address = ?, phone = ?, phone2 = ?, whatsapp = ?,\
+    \ hours = ?, note = ?, maps_url = ?, maps_query = ?, sort_order = ?, active = ?, lat = ?, lng = ?,\
+    \ updated_at = datetime('now') WHERE id = ?"
+    (branchFields b ++ [toField i])
+
+deleteBranch :: Connection -> Int -> IO ()
+deleteBranch c i = execute c "DELETE FROM branches WHERE id = ?" (Only i)
+
+-- | Urutan berikutnya untuk cabang baru (di paling akhir).
+nextBranchSort :: Connection -> IO Int
+nextBranchSort c = maybe 10 ((+ 10) . fromOnly) . listToMaybe <$> query_ c "SELECT COALESCE(MAX(sort_order), 0) FROM branches"

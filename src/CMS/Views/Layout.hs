@@ -35,8 +35,8 @@ headWith title extra = head_ $ do
   link_ [rel_ "preconnect", href_ "https://fonts.gstatic.com", crossorigin_ ""]
   link_ [rel_ "stylesheet", href_ "https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800&display=swap"]
   link_ [rel_ "stylesheet", href_ "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css", crossorigin_ "anonymous", makeAttribute "referrerpolicy" "no-referrer"]
-  link_ [rel_ "stylesheet", href_ "/static/style.css?v=26"]
-  script_ [src_ "/static/app.js?v=16", defer_ "defer"] ("" :: Text)
+  link_ [rel_ "stylesheet", href_ "/static/style.css?v=29"]
+  script_ [src_ "/static/app.js?v=18", defer_ "defer"] ("" :: Text)
   extra
 
 csrfField :: Ctx -> Html ()
@@ -352,6 +352,7 @@ navItems :: User -> [NavItem]
 navItems u =
   [leaf "dashboard" "Dashboard" "/admin" "fa-solid fa-gauge-high"]
     ++ [leaf "pages" "Halaman" "/admin/pages" "fa-regular fa-file-lines" | isStaff u]
+    ++ [leaf "branches" "Cabang" "/admin/branches" "fa-solid fa-store" | isStaff u]
     ++ [leaf "seo" "SEO & Analitik" "/admin/seo" "fa-solid fa-chart-line" | isStaff u]
     ++ [ NavItem "articles" "Artikel" "/admin/posts" "fa-regular fa-newspaper" $
            [ leaf "posts" "Semua Artikel" "/admin/posts" "fa-solid fa-list-ul"

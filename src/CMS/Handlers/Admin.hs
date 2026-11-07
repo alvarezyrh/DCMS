@@ -1,13 +1,14 @@
 -- | Handler dashboard: artikel, kategori, pengguna, profil, pengaturan.
 module CMS.Handlers.Admin (adminRoute) where
 
-import Control.Monad (when)
+import Control.Monad (void, when)
 import Data.Aeson (eitherDecodeStrict, encode, object, (.=))
 import Data.Char (isAsciiLower, isAsciiUpper, isDigit)
+import Text.Read (readMaybe)
 import qualified Data.Aeson.Key as Key
 import Data.Time
 import qualified Data.ByteString.Lazy as BL
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, isNothing)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -20,6 +21,7 @@ import CMS.Blocks
 import CMS.DB
 import CMS.Seo (analyze, seoInputOf, seoScore)
 import CMS.Views.SeoAdmin (SeoData (..), SeoWidget (..), seoPage)
+import CMS.Views.BranchAdmin (branchFormPage, branchesPage)
 import CMS.NavStyle (sanitizeNav)
 import CMS.Handlers.Public (forbidden, notFound, passwordErrors, validateAccount, validEmail)
 import CMS.Status (getServerStatus, statusPairs)
@@ -67,6 +69,13 @@ adminRoute path c u = case (cMethod c, path) of
   ("POST", ["profile", "password"]) -> passwordUpdate c u
   ("POST", ["profile", "avatar"]) -> avatarUpload c u
   ("POST", ["profile", "avatar", "delete"]) -> avatarDelete c u
+  -- Cabang (Admin & Editor)
+  ("GET", ["branches"]) -> staff (branchesIndex c u)
+  ("GET", ["branches", "new"]) -> staff (branchNew c u)
+  ("POST", ["branches"]) -> staff (branchSave c u Nothing)
+  ("GET", ["branches", i, "edit"]) | Just k <- readInt i -> staff (withBranch k (\b -> ok (branchFormPage c u (Just b) (branchToInput b) [])))
+  ("POST", ["branches", i]) | Just k <- readInt i -> staff (withBranch k (branchSave c u . Just))
+  ("POST", ["branches", i, "delete"]) | Just k <- readInt i -> staff (withBranch k (branchDelete c))
   -- SEO & analitik (Admin & Editor; pengaturan integrasi khusus Admin)
   ("GET", ["seo"]) -> staff (seoIndex c u [])
   ("POST", ["seo", "settings"]) -> admin (seoSettingsSave c u)
@@ -90,6 +99,7 @@ adminRoute path c u = case (cMethod c, path) of
         Nothing -> notFound c
     withCategory i k = db (`findCategory` i) >>= maybe (notFound c) (k c u)
     withUser i k = db (`findUserById` i) >>= maybe (notFound c) (k c u)
+    withBranch i k = db (`findBranch` i) >>= maybe (notFound c) k
 
 
 -- Dashboard ---------------------------------------------------------------------
@@ -581,3 +591,105 @@ verifyCode raw =
           | otherwise -> T.takeWhile (`notElem` ['"', '\'']) (T.dropWhile (`elem` ['"', '\'']) (T.drop 8 rest))
       ok ch = isAsciiUpper ch || isAsciiLower ch || isDigit ch || ch == '-' || ch == '_'
    in if T.all ok inner && T.length inner <= 120 then inner else ""
+
+-- Cabang ------------------------------------------------------------------------------------
+
+branchesIndex :: Handler
+branchesIndex c u = do
+  bs <- withDb (cEnv c) listBranches
+  let q = T.toLower (paramT c "q")
+      prov = paramT c "prov"
+      hay b = T.toLower (T.unwords [brName b, brCity b, brProvince b, brAddress b, brPhone b, brPhone2 b])
+      shown = [b | b <- bs, T.null q || q `T.isInfixOf` hay b, T.null prov || brProvince b == prov]
+  ok (branchesPage c u bs shown (paramT c "q") prov)
+
+branchNew :: Handler
+branchNew c u = do
+  n <- withDb (cEnv c) nextBranchSort
+  ok (branchFormPage c u Nothing emptyBranchInput {biSort = n} [])
+
+readBranchInput :: Ctx -> BranchInput
+readBranchInput c =
+  BranchInput
+    { biName = T.take 120 (paramT c "name")
+    , biCity = T.take 80 (paramT c "city")
+    , biProvince = T.take 60 (paramT c "province")
+    , biAddress = T.take 400 (T.unwords (T.words (paramT c "address")))
+    , biPhone = T.take 30 (paramT c "phone")
+    , biPhone2 = T.take 30 (paramT c "phone2")
+    , biWhatsapp = normalizeWa (paramT c "whatsapp")
+    , biHours = T.take 120 (paramT c "hours")
+    , biNote = T.take 80 (paramT c "note")
+    , biMapsUrl = T.take 500 (paramT c "maps_url")
+    , biMapsQuery = T.take 120 (paramT c "maps_query")
+    , biSort = maybe 0 (max 0 . min 100000) (paramInt c "sort")
+    , biActive = paramBool c "active"
+    , biLat = fst <$> coords
+    , biLng = snd <$> coords
+    }
+  where
+    -- Koordinat dari isian "lat, lng"; bila kosong, coba ambil dari tautan Google Maps lengkap.
+    coords = case parseCoords (paramT c "coords") of
+      Just ll -> Just ll
+      Nothing | isBlank (paramT c "coords") -> coordsFromMapsUrl (paramT c "maps_url")
+      Nothing -> Nothing
+
+-- | "-6.2088, 106.8456" -> Just (-6.2088, 106.8456), dalam rentang yang sah.
+parseCoords :: Text -> Maybe (Double, Double)
+parseCoords t = case map T.strip (T.splitOn "," t) of
+  [a, b] -> do
+    la <- readMaybe (T.unpack a)
+    lo <- readMaybe (T.unpack b)
+    if abs la <= 90 && abs lo <= 180 then Just (la, lo) else Nothing
+  _ -> Nothing
+
+-- | Koordinat dari URL Google Maps: ".../place/...!3d-6.2!4d106.8" atau ".../@-6.2,106.8,17z".
+coordsFromMapsUrl :: Text -> Maybe (Double, Double)
+coordsFromMapsUrl u
+  | (_, r) <- T.breakOn "!3d" u, not (T.null r) =
+      let (la, r2) = T.breakOn "!4d" (T.drop 3 r)
+       in parseCoords (la <> "," <> T.takeWhile (\ch -> isDigit ch || ch `elem` ['.', '-']) (T.drop 3 r2))
+  | (_, r) <- T.breakOn "/@" u, not (T.null r) =
+      case T.splitOn "," (T.drop 2 r) of
+        (la : lo : _) -> parseCoords (la <> "," <> lo)
+        _ -> Nothing
+  | otherwise = Nothing
+
+validateBranch :: BranchInput -> [Text]
+validateBranch BranchInput {..} =
+  concat
+    [ ["Nama outlet wajib diisi." | isBlank biName]
+    , ["Kota / wilayah wajib diisi." | isBlank biCity]
+    , ["Provinsi wajib dipilih." | isBlank biProvince]
+    , ["Alamat wajib diisi." | isBlank biAddress]
+    , ["Nomor telepon tidak valid (8–15 digit)." | badPhone biPhone]
+    , ["Nomor telepon kedua tidak valid (8–15 digit)." | badPhone biPhone2]
+    , ["Nomor WhatsApp tidak valid (8–15 digit)." | badPhone biWhatsapp]
+    , ["Tautan peta harus diawali https://" | not (T.null biMapsUrl) && not (isWebUrl biMapsUrl)]
+    ]
+  where
+    badPhone t = let n = T.length (T.filter isDigit t) in not (T.null t) && (n < 8 || n > 15)
+
+-- | Koordinat diisi tapi tidak bisa dibaca?
+badCoords :: Ctx -> [Text]
+badCoords c =
+  ["Koordinat tidak valid. Tulis seperti: -6.2088, 106.8456" | not (isBlank raw) && isNothing (parseCoords raw)]
+  where
+    raw = paramT c "coords"
+
+branchSave :: Ctx -> User -> Maybe Branch -> IO Response
+branchSave c u mB = do
+  let input = readBranchInput c
+      errs = validateBranch input ++ badCoords c
+  if not (null errs)
+    then pure $ htmlResp status422 (branchFormPage c u mB input errs)
+    else do
+      withDb (cEnv c) $ \db -> case mB of
+        Nothing -> void (createBranch db input)
+        Just b -> updateBranch db (brId b) input
+      redirectFlash "/admin/branches" "success" ("Cabang “" <> biName input <> "” " <> maybe "ditambahkan." (const "diperbarui.") mB)
+
+branchDelete :: Ctx -> Branch -> IO Response
+branchDelete c b = do
+  withDb (cEnv c) (`deleteBranch` brId b)
+  redirectFlash "/admin/branches" "success" ("Cabang “" <> brName b <> "” dihapus.")

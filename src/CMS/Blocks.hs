@@ -118,6 +118,8 @@ blockSpecs =
         ]
   , BlockSpec "image" "Gambar" "fa-regular fa-image" ["src", "alt", "caption"] [] $
       blk "image" [("src", placeholder), ("alt", ""), ("caption", "Keterangan gambar")] []
+  , BlockSpec "branchdir" "Direktori cabang" "fa-solid fa-store" ["eyebrow", "title", "text"] [] $
+      blk "branchdir" [("eyebrow", "Lokasi kami"), ("title", "Temukan outlet terdekat"), ("text", "Datang langsung ke cabang kami di kota Anda.")] []
   , BlockSpec "testimonials" "Testimoni" "fa-solid fa-quote-left" ["eyebrow", "title", "text"] ["text", "title", "role", "rating", "src", "alt"] $
       blk "testimonials" [("eyebrow", "Testimoni"), ("title", "Kata mereka tentang kami"), ("text", "")]
         [ item [("text", "Pelayanannya cepat dan hasilnya melebihi harapan. Sangat direkomendasikan!"), ("title", "Rina Wijaya"), ("role", "Pemilik, Toko Rina"), ("rating", "5"), ("src", ""), ("alt", "")]
@@ -308,12 +310,7 @@ sitePages =
       ]
   , SitePage "branch" "Branch" $
       [ blk "head" [("eyebrow", "Branch"), ("title", "Kantor cabang"), ("text", "Temukan kantor terdekat dari lokasi Anda.")] []
-      , blk "branches" [("eyebrow", ""), ("title", "Lokasi kami"), ("text", "")]
-          [ item [("title", "Jakarta (Pusat)"), ("address", "Jl. Sudirman No. 10, Jakarta Pusat"), ("phone", "(021) 555-0101"), ("hours", "Senin–Jumat, 08.00–17.00")]
-          , item [("title", "Bandung"), ("address", "Jl. Asia Afrika No. 25, Bandung"), ("phone", "(022) 555-0202"), ("hours", "Senin–Jumat, 08.00–17.00")]
-          , item [("title", "Surabaya"), ("address", "Jl. Pemuda No. 7, Surabaya"), ("phone", "(031) 555-0303"), ("hours", "Senin–Jumat, 08.00–17.00")]
-          , item [("title", "Medan"), ("address", "Jl. Gatot Subroto No. 12, Medan"), ("phone", "(061) 555-0404"), ("hours", "Senin–Sabtu, 08.00–15.00")]
-          ]
+      , blk "branchdir" [("eyebrow", ""), ("title", "Lokasi kami"), ("text", "")] []
       , blk "cta" [("title", "Tidak ada cabang di kota Anda?"), ("text", "Tim kami juga melayani secara online."), ("btn", "Hubungi kami"), ("href", "/contact")] []
       ]
   , SitePage "blog" "Blog" $

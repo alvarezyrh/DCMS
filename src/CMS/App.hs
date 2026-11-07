@@ -66,7 +66,8 @@ securityHeaders env =
     , ("X-Content-Type-Options", "nosniff")
     , ("Referrer-Policy", "same-origin")
     , ("Content-Security-Policy", "object-src 'none'; base-uri 'self'; frame-ancestors 'none'")
-    , ("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()")
+    -- Lokasi boleh diminta halaman situs sendiri (urutan cabang terdekat), tidak oleh iframe lain.
+    , ("Permissions-Policy", "camera=(), microphone=(), geolocation=(self), payment=(), usb=()")
     , ("Cross-Origin-Opener-Policy", "same-origin")
     ]
       ++ [("Strict-Transport-Security", "max-age=31536000; includeSubDomains") | envSecure env]

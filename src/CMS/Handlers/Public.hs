@@ -51,7 +51,8 @@ sitePage c slug =
     Just pg -> do
       let edit = editMode c
       posts <- latestPosts c (if edit then 6 else postsWanted (pageBlocks pg))
-      ok (pageView c pg edit posts mempty)
+      pd <- pageData c pg edit posts
+      ok (pageView c pg edit pd mempty)
 
 -- | Blog: blok builder di atas, lalu daftar artikel + pencarian + paginasi.
 blogPage :: Ctx -> IO Response
@@ -69,7 +70,14 @@ blogPage c =
         cs <- listCategories db
         pure (ps, t, cs)
       latest <- latestPosts c (if edit then 6 else postsWanted (pageBlocks pg))
-      ok (pageView c pg edit latest (blogListing edit cats posts q page (totalPages total per)))
+      pd <- pageData c pg edit latest
+      ok (pageView c pg edit pd (blogListing edit cats posts q page (totalPages total per)))
+
+-- | Data dinamis untuk blok halaman; cabang hanya diambil bila dipakai.
+pageData :: Ctx -> Page -> Bool -> [Post] -> IO PageData
+pageData c pg edit posts = do
+  bs <- if needsBranches edit pg then withDb (cEnv c) listActiveBranches else pure []
+  pure (PageData posts bs (setSiteName (cSettings c)))
 
 categoryArchive :: Ctx -> Text -> IO Response
 categoryArchive c slug = do

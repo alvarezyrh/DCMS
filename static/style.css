@@ -84,7 +84,7 @@ img { max-width: 100%; height: auto; }
 .field { display: flex; flex-direction: column; gap: .3rem; margin-bottom: .75rem; }
 .field label { font-weight: 600; font-size: .9rem; }
 .field-check label { font-weight: 500; display: flex; align-items: center; gap: .4rem; cursor: pointer; }
-input[type=text], input[type=email], input[type=password], input[type=search], input[type=number], select, textarea {
+input[type=text], input[type=email], input[type=password], input[type=search], input[type=number], input[type=tel], input[type=url], select, textarea {
   width: 100%; padding: .55rem .75rem; border: 1px solid var(--border); border-radius: 8px;
   background: var(--surface); color: var(--text); font: inherit;
 }
@@ -1249,3 +1249,84 @@ li.lv-bad > i, .sw-level.lv-bad i { color: var(--st-bad); }
 .logo-sample { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; margin: 0 0 .9rem; padding: .6rem .8rem; border-radius: 12px; background: var(--surface-2); }
 .logo-sample-brand { pointer-events: none; }
 .logo-sample-brand::before { content: ""; width: 10px; height: 10px; border-radius: 3px; background: var(--primary); }
+
+/* =====================================================================
+   Cabang: direktori di halaman situs + menu Cabang di dashboard
+   ===================================================================== */
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+/* Toolbar pencarian */
+.bd-toolbar { display: flex; flex-wrap: wrap; gap: .75rem; align-items: center; justify-content: center; margin: 0 auto 1rem; max-width: 860px; }
+.bd-search { position: relative; flex: 1 1 340px; }
+.bd-search i { position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
+.bd-search input { width: 100%; padding: .85rem 1rem .85rem 2.6rem; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); font-size: 1rem; box-shadow: var(--shadow); }
+.bd-select { flex: 0 1 260px; }
+.bd-select select { width: 100%; padding: .85rem 1rem; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); font-size: .95rem; font-weight: 600; box-shadow: var(--shadow); cursor: pointer; }
+.bd-count { text-align: center; color: var(--muted); font-size: .9rem; font-weight: 600; margin: 0 0 2rem; }
+
+/* Kelompok provinsi */
+.bd-group { margin-bottom: 2.5rem; scroll-margin-top: 90px; }
+.bd-group[hidden], .bd-card[hidden] { display: none; }
+.bd-group-head { display: flex; align-items: baseline; gap: .75rem; padding-bottom: .65rem; margin-bottom: 1.1rem; border-bottom: 1px solid var(--border); }
+.bd-group-head h3 { margin: 0; font-size: 1.25rem; letter-spacing: -.01em; }
+.bd-group-n { font-size: .8rem; font-weight: 700; color: var(--primary); background: var(--primary-soft); padding: .15rem .6rem; border-radius: 999px; }
+
+/* Kartu cabang: tinggi seragam per baris, tombol selalu di bawah */
+.bd-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 1rem; align-items: stretch; }
+.bd-card { display: flex; flex-direction: column; gap: .7rem; padding: 1.25rem; background: var(--surface); border: 1px solid var(--border); border-radius: 18px; box-shadow: var(--shadow); transition: transform .2s, box-shadow .2s, border-color .2s; }
+.bd-card:hover { transform: translateY(-3px); box-shadow: 0 16px 36px rgba(16, 30, 28, .10); border-color: color-mix(in srgb, var(--primary) 35%, var(--border)); }
+.bd-card-top { display: flex; align-items: center; justify-content: space-between; gap: .5rem; flex-wrap: wrap; }
+.bd-city { display: inline-flex; align-items: center; gap: .35rem; font-size: .78rem; font-weight: 800; letter-spacing: .03em; text-transform: uppercase; color: var(--primary); }
+.bd-badge { font-size: .72rem; font-weight: 700; padding: .2rem .6rem; border-radius: 999px; color: var(--success); background: var(--success-soft); white-space: nowrap; }
+.bd-name { margin: 0; font-size: 1.15rem; line-height: 1.3; letter-spacing: -.01em; }
+.bd-info { list-style: none; margin: 0; padding: 0; display: grid; gap: .5rem; font-size: .9rem; color: var(--muted); }
+.bd-info li { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: .55rem; align-items: start; line-height: 1.5; }
+.bd-info i { color: var(--primary); margin-top: .22rem; text-align: center; font-size: .85rem; }
+.bd-info a { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+.bd-actions { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: auto; padding-top: .9rem; border-top: 1px dashed var(--border); }
+.bd-actions .btn { flex: 1 1 auto; justify-content: center; }
+.bd-wa { background: #25d366; border-color: #25d366; color: #fff; }
+.bd-wa:hover { background: #1ebe5b; border-color: #1ebe5b; }
+.bd-empty { text-align: center; padding: 3rem 1rem; color: var(--muted); }
+.bd-empty i { font-size: 2.2rem; margin-bottom: .5rem; display: block; }
+.bd-empty[hidden] { display: none; }
+@media (max-width: 520px) { .bd-grid { grid-template-columns: minmax(0, 1fr); } .bd-select { flex: 1 1 100%; } }
+
+/* Popup peta */
+.map-modal { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 16px; background: rgba(8, 14, 13, .78); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); animation: lbIn .2s ease; }
+.map-modal[hidden] { display: none; }
+.map-modal-box { width: min(960px, 100%); background: var(--surface); border-radius: 18px; overflow: hidden; box-shadow: 0 30px 80px rgba(0, 0, 0, .45); }
+.map-modal-head { display: flex; align-items: center; gap: .75rem; padding: .75rem .75rem .75rem 1.1rem; border-bottom: 1px solid var(--border); }
+.map-modal-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.map-modal-route[hidden] { display: none; }
+.map-modal .lb-btn { width: 38px; height: 38px; color: var(--text); background: var(--surface-2); border-color: var(--border); }
+.map-modal iframe { display: block; width: 100%; height: min(70vh, 560px); border: 0; }
+
+/* Dashboard: menu Cabang */
+.branch-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; margin-bottom: 1.25rem; }
+.branch-table .num { width: 70px; color: var(--muted); }
+.branch-table tr.is-off td { opacity: .55; }
+.branch-table td div { white-space: nowrap; }
+.branch-form { max-width: 820px; }
+.branch-form h3:first-child { margin-top: 0; }
+.form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 0 1rem; }
+.map-preview iframe { display: block; width: 100%; height: 260px; border: 0; border-radius: 12px; margin-top: .25rem; box-shadow: 0 0 0 1px var(--border); }
+/* Tombol kartu cabang: WhatsApp selebar kartu (aksi utama), Peta & Rute berdampingan */
+.bd-actions { display: grid; grid-template-columns: 1fr 1fr; }
+.bd-actions .bd-wa { grid-column: 1 / -1; }
+.bd-actions .btn:only-child, .bd-actions .btn:last-child:nth-child(2) { grid-column: auto / span 1; }
+
+/* Cabang: nomor urut, jarak, tombol "terdekat" */
+.bd-card-top { justify-content: flex-start; }
+.bd-card-top .bd-badge { margin-left: auto; }
+.bd-num { flex: none; min-width: 28px; height: 28px; padding: 0 .4rem; display: inline-grid; place-items: center; border-radius: 9px; background: var(--primary); color: var(--primary-ink); font-size: .8rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+.bd-dist { display: inline-flex; align-items: center; margin-left: .5rem; padding: .1rem .5rem; border-radius: 999px; font-size: .74rem; font-weight: 800; vertical-align: middle; color: var(--primary); background: var(--primary-soft); white-space: nowrap; }
+.bd-dist[hidden] { display: none; }
+.bd-near { flex: 0 0 auto; border-radius: 999px; padding: .8rem 1.2rem; box-shadow: var(--shadow); }
+.bd-near.is-on { background: var(--surface); color: var(--text); border-color: var(--border); }
+.bd-near:disabled { opacity: .7; cursor: progress; }
+.bd-geo-msg { text-align: center; margin: -1.4rem auto 2rem; max-width: 720px; font-size: .88rem; color: var(--primary); font-weight: 600; }
+.bd-geo-msg.is-error { color: var(--danger); }
+.bd-geo-msg[hidden], .bd-flat[hidden] { display: none; }
+.bd-flat { margin-bottom: 2rem; }
+@media (max-width: 520px) { .bd-near { flex: 1 1 100%; justify-content: center; } }
