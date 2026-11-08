@@ -2,10 +2,11 @@
 module CMS.Util where
 
 import CMark (commonmarkToHtml, optSmart)
-import Data.Char (isAlphaNum, isAscii, isSpace)
+import Data.Char (isAlphaNum, isAscii, isDigit, isSpace)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Read as TR
+import Text.Read (readMaybe)
 
 slugify :: Text -> Text
 slugify t =
@@ -61,3 +62,34 @@ isBlank = T.all isSpace
 
 tshow :: Show a => a -> Text
 tshow = T.pack . show
+
+-- | Nomor Indonesia -> format internasional tanpa "+", mis. "0822-9999-5125" -> "6282299995125".
+waNumber :: Text -> Text
+waNumber t =
+  let d = T.filter isDigit t
+   in if "0" `T.isPrefixOf` d then "62" <> T.drop 1 d else d
+
+-- | Tampilan nomor yang seragam: "0822-9999-5125".
+fmtPhone :: Text -> Text
+fmtPhone t =
+  let d0 = T.filter isDigit t
+      d = if "62" `T.isPrefixOf` d0 then "0" <> T.drop 2 d0 else d0
+   in if T.length d < 9 then T.strip t else T.intercalate "-" [T.take 4 d, T.take 4 (T.drop 4 d), T.drop 8 d]
+
+-- | "-6.2088, 106.8456" -> Just (-6.2088, 106.8456), dalam rentang yang sah.
+parseCoords :: Text -> Maybe (Double, Double)
+parseCoords t = case map T.strip (T.splitOn "," t) of
+  [a, b] -> do
+    la <- readMaybe (T.unpack a)
+    lo <- readMaybe (T.unpack b)
+    if abs la <= 90 && abs lo <= 180 then Just (la, lo) else Nothing
+  _ -> Nothing
+
+-- | Jarak garis lurus dua titik (km), rumus haversine.
+haversineKm :: (Double, Double) -> (Double, Double) -> Double
+haversineKm (la1, lo1) (la2, lo2) =
+  let r = (* (pi / 180))
+      dLat = r (la2 - la1)
+      dLng = r (lo2 - lo1)
+      x = sin (dLat / 2) ^ (2 :: Int) + cos (r la1) * cos (r la2) * sin (dLng / 2) ^ (2 :: Int)
+   in 2 * 6371 * asin (sqrt x)

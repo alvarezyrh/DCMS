@@ -667,19 +667,6 @@ groupProv bs =
         go _ [] = []
         go seen (x : xs) = if x `elem` seen then go seen xs else x : go (x : seen) xs
 
--- | Nomor Indonesia -> format internasional tanpa "+", mis. "0822-9999-5125" -> "6282299995125".
-waNumber :: Text -> Text
-waNumber t =
-  let d = T.filter isDigit t
-   in if "0" `T.isPrefixOf` d then "62" <> T.drop 1 d else d
-
--- | Tampilan nomor yang seragam: "0822-9999-5125".
-fmtPhone :: Text -> Text
-fmtPhone t =
-  let d0 = T.filter isDigit t
-      d = if "62" `T.isPrefixOf` d0 then "0" <> T.drop 2 d0 else d0
-   in if T.length d < 9 then T.strip t else T.intercalate "-" [T.take 4 d, T.take 4 (T.drop 4 d), T.drop 8 d]
-
 urlEnc :: Text -> Text
 urlEnc = TE.decodeUtf8 . urlEncode True . TE.encodeUtf8
 

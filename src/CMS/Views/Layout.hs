@@ -35,8 +35,8 @@ headWith title extra = head_ $ do
   link_ [rel_ "preconnect", href_ "https://fonts.gstatic.com", crossorigin_ ""]
   link_ [rel_ "stylesheet", href_ "https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800&display=swap"]
   link_ [rel_ "stylesheet", href_ "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css", crossorigin_ "anonymous", makeAttribute "referrerpolicy" "no-referrer"]
-  link_ [rel_ "stylesheet", href_ "/static/style.css?v=29"]
-  script_ [src_ "/static/app.js?v=18", defer_ "defer"] ("" :: Text)
+  link_ [rel_ "stylesheet", href_ "/static/style.css?v=31"]
+  script_ [src_ "/static/app.js?v=20", defer_ "defer"] ("" :: Text)
   extra
 
 csrfField :: Ctx -> Html ()
@@ -256,17 +256,27 @@ floatingButtons c = do
         a_ [href_ waUrl, target_ "_blank", rel_ "noopener", class_ "fab wa-fab", title_ "Chat WhatsApp", makeAttribute "aria-label" "Chat lewat WhatsApp"] $
           icon "fa-brands fa-whatsapp"
 
+-- | Header situs. Di HP menu halaman disembunyikan di balik tombol ☰ (panel turun,
+-- static/app.js [data-nav-toggle]); di layar lebar tampil sebagai kapsul menu.
 siteHeader :: Ctx -> Text -> Html ()
 siteHeader c active =
-  header_ [class_ "site-header"] $
+  header_ [class_ "site-header", data_ "site-header" ""] $
     div_ [class_ "wrap header-inner"] $ do
       brandLink c "/" "brand"
-      nav_ [class_ "site-menu", makeAttribute "aria-label" "Menu utama"] $
+      nav_ [class_ "site-menu", id_ "site-menu", makeAttribute "aria-label" "Menu utama"] $
         forM_ sitePages $ \sp ->
-          a_ ([href_ (pagePath (spSlug sp))] <> [class_ "active" | spSlug sp == active]) (toHtml (spTitle sp))
-      div_ [class_ "site-actions"] $ case cUser c of
-        Just _ -> a_ [href_ "/admin", class_ "btn btn-sm"] (icon "fa-solid fa-gauge-high" >> "Dashboard")
-        Nothing -> a_ [href_ "/login", class_ "btn btn-ghost btn-sm"] "Masuk"
+          a_ ([href_ (pagePath (spSlug sp))] <> [class_ "active" | spSlug sp == active] <> [makeAttribute "aria-current" "page" | spSlug sp == active]) $ do
+            icon (pageIcon (spSlug sp))
+            span_ (toHtml (spTitle sp))
+      div_ [class_ "site-actions"] $ do
+        case cUser c of
+          Just _ -> a_ [href_ "/admin", class_ "btn btn-sm site-cta", title_ "Dashboard"] (icon "fa-solid fa-gauge-high" >> span_ [class_ "site-cta-label"] "Dashboard")
+          Nothing -> a_ [href_ "/login", class_ "btn btn-ghost btn-sm site-cta", title_ "Masuk"] (icon "fa-solid fa-arrow-right-to-bracket" >> span_ [class_ "site-cta-label"] "Masuk")
+        button_
+          [ type_ "button", class_ "nav-toggle", data_ "nav-toggle" ""
+          , makeAttribute "aria-controls" "site-menu", makeAttribute "aria-expanded" "false", makeAttribute "aria-label" "Buka menu"
+          ]
+          (span_ [class_ "nav-toggle-bars", makeAttribute "aria-hidden" "true"] (span_ "" >> span_ "" >> span_ ""))
 
 -- | Navigasi bawah ala iOS (ikon + judul). Muncul saat halaman digulir ke bawah (app.js).
 tabBar :: Text -> Html ()
@@ -354,6 +364,7 @@ navItems u =
     ++ [leaf "pages" "Halaman" "/admin/pages" "fa-regular fa-file-lines" | isStaff u]
     ++ [leaf "branches" "Cabang" "/admin/branches" "fa-solid fa-store" | isStaff u]
     ++ [leaf "seo" "SEO & Analitik" "/admin/seo" "fa-solid fa-chart-line" | isStaff u]
+    ++ [leaf "api" "API Gateway" "/admin/api" "fa-solid fa-plug" | isAdmin u]
     ++ [ NavItem "articles" "Artikel" "/admin/posts" "fa-regular fa-newspaper" $
            [ leaf "posts" "Semua Artikel" "/admin/posts" "fa-solid fa-list-ul"
            , leaf "new" "Tulis Baru" "/admin/posts/new" "fa-solid fa-pen-to-square"

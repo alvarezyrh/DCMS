@@ -2,7 +2,7 @@
 -- Datanya tampil di halaman situs /branch lewat blok "Direktori cabang".
 module CMS.Views.BranchAdmin (branchesPage, branchFormPage) where
 
-import Control.Monad (forM_, unless, when)
+import Control.Monad (forM_, unless)
 import Data.List (nub)
 import Data.Maybe (isJust)
 import Data.Text (Text)
@@ -20,52 +20,63 @@ branchesPage :: Ctx -> User -> [Branch] -> [Branch] -> Text -> Text -> Html ()
 branchesPage c u allBs shown q prov = adminLayout c u "branches" "Cabang" $ do
   let active = filter brActive allBs
       provs = nub (map brProvince allBs)
-  div_ [class_ "branch-kpis"] $ do
+  div_ [class_ "branch-kpis bt-kpis"] $ do
     kpi "fa-solid fa-store" "Cabang aktif" (tshow (length active))
     kpi "fa-solid fa-map-location-dot" "Provinsi" (tshow (length (nub (map brProvince active))))
     kpi "fa-solid fa-city" "Kota" (tshow (length (nub (map brCity active))))
     kpi "fa-regular fa-eye-slash" "Nonaktif" (tshow (length allBs - length active))
-  div_ [class_ "toolbar"] $ do
-    form_ [method_ "get", action_ "/admin/branches", class_ "filters"] $ do
-      input_ [type_ "search", name_ "q", value_ q, placeholder_ "Cari nama, kota, alamat, telepon…"]
-      select_ [name_ "prov"] $ do
+  div_ [class_ "bt-bar"] $ do
+    form_ [method_ "get", action_ "/admin/branches", class_ "bt-filters", role_ "search"] $ do
+      label_ [class_ "bt-search"] $ do
+        icon "fa-solid fa-magnifying-glass"
+        input_ [type_ "search", name_ "q", value_ q, placeholder_ "Cari nama, kota, alamat, telepon…", makeAttribute "aria-label" "Cari cabang"]
+      select_ [name_ "prov", makeAttribute "aria-label" "Filter provinsi"] $ do
         option_ [value_ ""] "Semua provinsi"
         forM_ provs $ \p -> option_ ([value_ p] <> [selected_ "selected" | p == prov]) (toHtml p)
-      button_ [type_ "submit", class_ "btn btn-ghost"] "Filter"
-      unless (T.null q && T.null prov) $ a_ [href_ "/admin/branches", class_ "btn btn-ghost"] "Reset"
-    div_ [class_ "row"] $ do
-      a_ [href_ "/branch", target_ "_blank", rel_ "noopener", class_ "btn btn-ghost"] (icon "fa-solid fa-arrow-up-right-from-square" >> "Lihat halaman cabang")
-      a_ [href_ "/admin/branches/new", class_ "btn"] "+ Tambah cabang"
-  p_ [class_ "muted"] (toHtml (tshow (length shown) <> " cabang" <> if length shown /= length allBs then " (dari " <> tshow (length allBs) <> ")" else ""))
+      button_ [type_ "submit", class_ "btn btn-ghost"] (icon "fa-solid fa-filter" >> " Filter")
+      unless (T.null q && T.null prov) $ a_ [href_ "/admin/branches", class_ "btn btn-ghost", title_ "Hapus filter"] (icon "fa-solid fa-xmark" >> " Reset")
+    div_ [class_ "bt-actions"] $ do
+      a_ [href_ "/branch", target_ "_blank", rel_ "noopener", class_ "btn btn-ghost"] (icon "fa-solid fa-arrow-up-right-from-square" >> " Lihat halaman")
+      a_ [href_ "/admin/branches/new", class_ "btn"] (icon "fa-solid fa-plus" >> " Tambah cabang")
+  p_ [class_ "bt-count muted"] (toHtml (tshow (length shown) <> " cabang" <> if length shown /= length allBs then " (dari " <> tshow (length allBs) <> ")" else ""))
   if null shown
     then emptyState (if null allBs then "Belum ada cabang. Klik “Tambah cabang”." else "Tidak ada cabang yang cocok.")
     else div_ [class_ "table-wrap card"] $ table_ [class_ "table branch-table"] $ do
+      colgroup_ $ do
+        col_ [class_ "c-num"]
+        col_ [class_ "c-name"]
+        col_ [class_ "c-contact"]
+        col_ [class_ "c-hours"]
+        col_ [class_ "c-status"]
+        col_ [class_ "c-actions"]
       thead_ $ tr_ $ do
-        th_ [class_ "num"] "Urutan"
+        th_ [class_ "num", title_ "Urutan tampil"] "No."
         th_ "Cabang"
         th_ "Kontak"
         th_ "Jam operasional"
         th_ "Status"
         th_ [class_ "right"] "Aksi"
       tbody_ $ forM_ shown $ \b -> tr_ ([class_ "is-off" | not (brActive b)]) $ do
-        td_ [class_ "num mono"] (toHtml (tshow (brSort b)))
-        td_ $ do
-          a_ [href_ (editUrl b), class_ "strong"] (toHtml (brName b))
-          br_ []
-          small_ [class_ "muted"] (toHtml (T.intercalate " · " (filter (not . T.null) [brCity b, brProvince b])))
-        td_ $ do
-          unless (isBlank (brPhone b)) $ div_ (icon "fa-solid fa-phone" >> " " >> toHtml (brPhone b))
-          unless (isBlank (brPhone2 b)) $ div_ [class_ "muted"] (toHtml (brPhone2 b))
-          when (isBlank (brPhone b)) $ span_ [class_ "muted"] "—"
-        td_ (if isBlank (brHours b) then span_ [class_ "muted"] "—" else toHtml (brHours b))
-        td_ (if brActive b then span_ [class_ "badge badge-published"] "Aktif" else span_ [class_ "badge badge-draft"] "Nonaktif")
-        td_ [class_ "right actions"] $ do
-          unless (isBlank (brMapsUrl b)) $
-            a_ [href_ (brMapsUrl b), target_ "_blank", rel_ "noopener", class_ "btn btn-ghost btn-sm", title_ "Buka di Google Maps"] (icon "fa-regular fa-map")
-          a_ [href_ (editUrl b), class_ "btn btn-ghost btn-sm"] "Edit"
+        td_ [class_ "td-num"] (span_ [class_ "bt-num"] (toHtml (tshow (brSort b))))
+        td_ [class_ "td-name"] $ do
+          a_ [href_ (editUrl b), class_ "bt-name", title_ (brName b)] (toHtml (brName b))
+          span_ [class_ "bt-meta", title_ (brAddress b)] (toHtml (T.intercalate " · " (filter (not . T.null) [brCity b, brProvince b])))
+        td_ [class_ "td-contact"] $
+          if isBlank (brPhone b)
+            then span_ [class_ "muted"] "—"
+            else do
+              span_ [class_ "bt-phone"] (icon "fa-solid fa-phone" >> toHtml (fmtPhone (brPhone b)))
+              unless (isBlank (brPhone2 b)) $ span_ [class_ "bt-phone2"] (toHtml (fmtPhone (brPhone2 b)))
+        td_ [class_ "td-hours"] (if isBlank (brHours b) then span_ [class_ "muted"] "—" else span_ [class_ "bt-hours"] (icon "fa-regular fa-clock" >> toHtml (brHours b)))
+        td_ [class_ "td-status"] (if brActive b then span_ [class_ "badge badge-published"] "Aktif" else span_ [class_ "badge badge-draft"] "Nonaktif")
+        td_ [class_ "td-actions"] $ div_ [class_ "bt-act"] $ do
+          if isBlank (brMapsUrl b)
+            then span_ [class_ "btn btn-ghost btn-sm btn-icon is-empty", makeAttribute "aria-hidden" "true"] (icon "fa-regular fa-map")
+            else a_ [href_ (brMapsUrl b), target_ "_blank", rel_ "noopener", class_ "btn btn-ghost btn-sm btn-icon", title_ "Buka di Google Maps", makeAttribute "aria-label" ("Peta " <> brName b)] (icon "fa-regular fa-map")
+          a_ [href_ (editUrl b), class_ "btn btn-ghost btn-sm"] (icon "fa-solid fa-pen" >> " Edit")
           form_ [method_ "post", action_ ("/admin/branches/" <> tshow (brId b) <> "/delete"), class_ "inline", data_ "confirm" ("Hapus cabang “" <> brName b <> "”?")] $ do
             csrfField c
-            button_ [type_ "submit", class_ "btn btn-danger btn-sm"] "Hapus"
+            button_ [type_ "submit", class_ "btn btn-danger btn-sm btn-icon", title_ "Hapus", makeAttribute "aria-label" ("Hapus " <> brName b)] (icon "fa-regular fa-trash-can")
   where
     editUrl b = "/admin/branches/" <> tshow (brId b) <> "/edit"
     kpi :: Text -> Text -> Text -> Html ()

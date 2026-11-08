@@ -31,6 +31,7 @@ import CMS.Auth
 import CMS.Blocks (lookupSitePage)
 import CMS.DB
 import qualified CMS.Handlers.Admin as Admin
+import qualified CMS.Handlers.Api as Api
 import qualified CMS.Handlers.Public as Public
 import CMS.Types
 import CMS.Upload (serveAsset)
@@ -157,6 +158,8 @@ mfilter' p m = case m of
 route :: Ctx -> IO Response
 route c = case (cMethod c, cPath c) of
   ("GET", []) -> Public.home c
+  ("GET", "api" : rest) -> Api.apiRoute c rest
+  ("OPTIONS", "api" : _) -> Api.apiPreflight c
   ("GET", ["sitemap.xml"]) -> Public.sitemap c
   ("GET", ["robots.txt"]) -> Public.robots c
   ("GET", ["post", s]) -> Public.showPost c s

@@ -20,7 +20,7 @@ import CMS.RateLimit (newLimiter)
 import Control.Monad (mfilter, void, when)
 import CMS.DB (openDb)
 import CMS.Types (Env (..), User (..))
-import Control.Concurrent.MVar (withMVar)
+import Control.Concurrent.MVar (newMVar, withMVar)
 
 main :: IO ()
 main = do
@@ -95,7 +95,8 @@ serve = do
   withMVar db (\c -> seedIfEmpty secure c adminPw)
   putStrLn ("[config] alamat situs: " <> maybe "(dari header Host)" T.unpack siteUrl <> ", cookie Secure: " <> show secure <> ", percaya proxy: " <> show trustProxy)
   putStrLn ("DCMS berjalan di port " <> show port)
-  let app = logStdout (mkApp (Env db staticDir assetDir dbPath started limiter siteUrl secure trustProxy))
+  apiCounter <- newMVar mempty
+  let app = logStdout (mkApp (Env db staticDir assetDir dbPath started limiter siteUrl secure trustProxy apiCounter))
       -- "*6" = IPv6 + IPv4 (dual-stack). SIGTERM (podman stop / systemctl stop): berhenti menerima
       -- koneksi baru, selesaikan yang sedang berjalan (maks. 5 detik, di bawah batas 10 detik podman stop), lalu keluar.
       -- Tanpa ini, proses sebagai PID 1 di kontainer mengabaikan SIGTERM.

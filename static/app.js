@@ -9,6 +9,34 @@
     if (msg && !window.confirm(msg)) e.preventDefault();
   });
 
+  // ---------- Menu HP: tombol ☰ membuka panel menu di header ----------
+  var siteHdr = document.querySelector("[data-site-header]");
+  var navTog = siteHdr && siteHdr.querySelector("[data-nav-toggle]");
+  if (navTog) {
+    var menuOpen = false;
+    var setMenu = function (on) {
+      menuOpen = on;
+      siteHdr.classList.toggle("is-open", on);
+      navTog.setAttribute("aria-expanded", on ? "true" : "false");
+      navTog.setAttribute("aria-label", on ? "Tutup menu" : "Buka menu");
+    };
+    navTog.addEventListener("click", function () { setMenu(!menuOpen); });
+    siteHdr.querySelectorAll(".site-menu a").forEach(function (a) {
+      a.addEventListener("click", function () { setMenu(false); });
+    });
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && menuOpen) { setMenu(false); navTog.focus(); }
+    });
+    document.addEventListener("click", function (e) {
+      if (menuOpen && !siteHdr.contains(e.target)) setMenu(false);
+    });
+    if (window.matchMedia) {
+      var wide = window.matchMedia("(min-width: 861px)");
+      var onWide = function () { if (wide.matches) setMenu(false); };
+      if (wide.addEventListener) wide.addEventListener("change", onWide);
+    }
+  }
+
   // Navigasi bawah ala iOS: header atas menghilang dan tab bar muncul saat digulir ke bawah.
   var tabbar = document.querySelector(".tabbar");
   var siteHeader = document.querySelector(".site .site-header");
@@ -16,7 +44,8 @@
     var docked = null, ticking = false;
     var update = function () {
       ticking = false;
-      var want = window.scrollY > 160;
+      var hdrOpen = document.querySelector("[data-site-header].is-open");
+      var want = window.scrollY > 160 && !hdrOpen;
       if (want === docked) return;
       docked = want;
       document.body.classList.toggle("nav-docked", docked);
@@ -451,6 +480,19 @@
       }, 700);
     });
   }
+
+  // ---------- Tombol salin ([data-copy]="#id") ----------
+  document.addEventListener("click", function (e) {
+    var b = e.target.closest && e.target.closest("[data-copy]");
+    if (!b) return;
+    var el = document.querySelector(b.getAttribute("data-copy"));
+    if (!el || !navigator.clipboard) return;
+    navigator.clipboard.writeText(el.textContent.trim()).then(function () {
+      var old = b.innerHTML;
+      b.innerHTML = '<i class="fa-solid fa-check"></i> Tersalin';
+      setTimeout(function () { b.innerHTML = old; }, 1600);
+    });
+  });
 
   // ---------- Slider ----------
   function slidesOf(slider) {

@@ -186,6 +186,23 @@ branchToInput :: Branch -> BranchInput
 branchToInput Branch {..} =
   BranchInput brName brCity brProvince brAddress brPhone brPhone2 brWhatsapp brHours brNote brMapsUrl brMapsQuery brSort brActive brLat brLng
 
+-- | API key untuk API Gateway. Key asli hanya ditampilkan sekali saat dibuat; yang
+-- disimpan hanya hash SHA-256 dan awalannya (untuk dikenali di daftar).
+data ApiKey = ApiKey
+  { akId :: Int
+  , akName :: Text
+  , akPrefix :: Text -- mis. "dcms_3f9c1a"
+  , akHash :: Text
+  , akScopes :: Text -- "*" = semua API, atau daftar dipisah koma: "branches,posts"
+  , akRateLimit :: Int -- permintaan per menit
+  , akActive :: Bool
+  , akCreated :: Text
+  , akLastUsed :: Maybe Text
+  }
+
+instance FromRow ApiKey where
+  fromRow = ApiKey <$> field <*> field <*> field <*> field <*> field <*> field <*> field <*> field <*> field
+
 -- | Daftar provinsi Indonesia (pilihan di form cabang).
 provinces :: [Text]
 provinces =
@@ -278,6 +295,7 @@ data Env = Env
   , envSiteUrl :: Maybe Text -- CMS_SITE_URL, mis. "https://contoh.id" (alamat resmi situs)
   , envSecure :: Bool -- situs diakses lewat HTTPS: cookie Secure + HSTS
   , envTrustProxy :: Bool -- CMS_TRUST_PROXY=1: IP pengunjung dari X-Forwarded-For
+  , envApiCounter :: MVar (M.Map Text (Integer, Int)) -- batas permintaan API per menit
   }
 
 data Flash = Flash

@@ -35,6 +35,12 @@ database **SQLite**, HTML dari **Lucid**, password **bcrypt**, dan konten **Mark
   Setiap cabang bernomor urut; tombol **Urutkan dari terdekat** memakai lokasi pengunjung (izin browser,
   butuh HTTPS) untuk menomori cabang dari yang terdekat sampai terjauh, lengkap dengan jaraknya.
   Koordinat cabang diatur di form Cabang (atau diambil otomatis dari tautan Google Maps lengkap).
+- **API & API Gateway** (menu khusus Admin): REST API JSON di `/api/v1` untuk web/aplikasi lain — Cabang
+  (`/branches`, filter `q`/`province`/`city`, urutan terdekat `near=lat,lng` + `radius_km`, detail, per provinsi),
+  Artikel, Kategori, dan Info situs. Tiap API bisa diaktifkan/dimatikan dan diatur aksesnya (publik atau wajib
+  API key). API key disimpan sebagai hash, punya cakupan API dan batas permintaan per menit; pemakaian dicatat
+  per API dan per key; CORS diatur per domain. Dokumentasi di `/api/docs`, spesifikasi di `/api/openapi.json`.
+  Contoh: `curl -H "X-API-Key: dcms_…" https://domain-anda/api/v1/branches?near=-6.2,106.8&per_page=5`
 - **Popup gambar**: gambar di halaman dan artikel bisa diklik untuk dibuka besar (tombol panah, Esc untuk
   menutup). Bisa dimatikan di panel Tampilan situs.
 - **Blok Kode custom**: HTML, CSS, dan JavaScript sendiri di page builder. Dijalankan di iframe sandbox

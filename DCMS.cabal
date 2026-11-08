@@ -27,6 +27,7 @@ library
     CMS.NavStyle
     CMS.Seo
     CMS.Analytics
+    CMS.Api
     CMS.DB
     CMS.Auth
     CMS.Util
@@ -38,8 +39,11 @@ library
     CMS.Views.Site
     CMS.Views.SeoAdmin
     CMS.Views.BranchAdmin
+    CMS.Views.ApiDocs
+    CMS.Views.ApiAdmin
     CMS.Views.Admin
     CMS.Handlers.Public
+    CMS.Handlers.Api
     CMS.Handlers.Admin
     CMS.App
   build-depends:

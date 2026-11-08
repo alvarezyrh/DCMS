@@ -4,7 +4,6 @@ module CMS.Handlers.Admin (adminRoute) where
 import Control.Monad (void, when)
 import Data.Aeson (eitherDecodeStrict, encode, object, (.=))
 import Data.Char (isAsciiLower, isAsciiUpper, isDigit)
-import Text.Read (readMaybe)
 import qualified Data.Aeson.Key as Key
 import Data.Time
 import qualified Data.ByteString.Lazy as BL
@@ -22,6 +21,10 @@ import CMS.DB
 import CMS.Seo (analyze, seoInputOf, seoScore)
 import CMS.Views.SeoAdmin (SeoData (..), SeoWidget (..), seoPage)
 import CMS.Views.BranchAdmin (branchFormPage, branchesPage)
+import CMS.Views.ApiAdmin (ApiPageData (..), apiGatewayPage)
+import CMS.Api (ApiConf (..), adKey, apiCatalog, decodeApiConf, defaultRateLimit, encodeApiConf)
+import CMS.Handlers.Api (newApiKey)
+import qualified Data.Map.Strict as M
 import CMS.NavStyle (sanitizeNav)
 import CMS.Handlers.Public (forbidden, notFound, passwordErrors, validateAccount, validEmail)
 import CMS.Status (getServerStatus, statusPairs)
@@ -69,6 +72,12 @@ adminRoute path c u = case (cMethod c, path) of
   ("POST", ["profile", "password"]) -> passwordUpdate c u
   ("POST", ["profile", "avatar"]) -> avatarUpload c u
   ("POST", ["profile", "avatar", "delete"]) -> avatarDelete c u
+  -- API Gateway (Admin)
+  ("GET", ["api"]) -> admin (apiGateway c u Nothing [])
+  ("POST", ["api", "config"]) -> admin (apiConfigSave c u)
+  ("POST", ["api", "keys"]) -> admin (apiKeyCreate c u)
+  ("POST", ["api", "keys", i, "toggle"]) | Just k <- readInt i -> admin (apiKeyToggle c k)
+  ("POST", ["api", "keys", i, "delete"]) | Just k <- readInt i -> admin (apiKeyDelete c k)
   -- Cabang (Admin & Editor)
   ("GET", ["branches"]) -> staff (branchesIndex c u)
   ("GET", ["branches", "new"]) -> staff (branchNew c u)
@@ -634,15 +643,6 @@ readBranchInput c =
       Nothing | isBlank (paramT c "coords") -> coordsFromMapsUrl (paramT c "maps_url")
       Nothing -> Nothing
 
--- | "-6.2088, 106.8456" -> Just (-6.2088, 106.8456), dalam rentang yang sah.
-parseCoords :: Text -> Maybe (Double, Double)
-parseCoords t = case map T.strip (T.splitOn "," t) of
-  [a, b] -> do
-    la <- readMaybe (T.unpack a)
-    lo <- readMaybe (T.unpack b)
-    if abs la <= 90 && abs lo <= 180 then Just (la, lo) else Nothing
-  _ -> Nothing
-
 -- | Koordinat dari URL Google Maps: ".../place/...!3d-6.2!4d106.8" atau ".../@-6.2,106.8,17z".
 coordsFromMapsUrl :: Text -> Maybe (Double, Double)
 coordsFromMapsUrl u
@@ -693,3 +693,64 @@ branchDelete :: Ctx -> Branch -> IO Response
 branchDelete c b = do
   withDb (cEnv c) (`deleteBranch` brId b)
   redirectFlash "/admin/branches" "success" ("Cabang “" <> brName b <> "” dihapus.")
+
+-- API Gateway --------------------------------------------------------------------------------
+
+apiGateway :: Ctx -> User -> Maybe (Text, Text) -> [Text] -> IO Response
+apiGateway c u newKey errs = do
+  d <- withDb (cEnv c) $ \db -> do
+    conf <- decodeApiConf <$> getApiConfig db
+    keys <- listApiKeys db
+    byApi <- apiUsageByApi db 7
+    byKey <- apiUsageByKey db 7
+    pure (ApiPageData conf keys byApi byKey newKey)
+  pure $ htmlResp (if null errs then status200 else status422) (apiGatewayPage c u d errs)
+
+apiConfigSave :: Handler
+apiConfigSave c u = do
+  let cors = T.take 2000 (T.strip (paramRaw c "cors"))
+      entries = filter (not . T.null) (map T.strip (T.split (`elem` [',', '\n', '\r', ' ']) cors))
+      badCors = [e | e <- entries, e /= "*", not (any (`T.isPrefixOf` e) ["https://", "http://"]) || T.any (`elem` ['"', '<', '>']) e]
+      conf =
+        ApiConf
+          (M.fromList [(adKey a, (paramBool c ("enabled_" <> adKey a), paramT c ("access_" <> adKey a) == "public")) | a <- apiCatalog])
+          (if null entries then "*" else T.intercalate "\n" entries)
+  if not (null badCors)
+    then apiGateway c u Nothing ["Domain CORS harus diawali https:// atau http://, atau * untuk semua: " <> T.intercalate ", " (take 3 badCors)]
+    else do
+      withDb (cEnv c) (`saveApiConfig` encodeApiConf conf)
+      redirectFlash "/admin/api" "success" "Pengaturan API disimpan."
+
+apiKeyCreate :: Handler
+apiKeyCreate c u = do
+  let name = T.take 80 (paramT c "name")
+      chosen = [v | ("scope", v) <- cForm c]
+      scopes
+        | "*" `elem` chosen || null valid = "*"
+        | otherwise = T.intercalate "," valid
+        where
+          valid = [adKey a | a <- apiCatalog, adKey a `elem` chosen]
+      limit = maybe defaultRateLimit (max 1 . min 10000) (paramInt c "rate_limit")
+  if isBlank name
+    then apiGateway c u Nothing ["Nama key wajib diisi."]
+    else do
+      (full, prefix, h) <- newApiKey
+      _ <- withDb (cEnv c) $ \db -> createApiKey db name prefix h scopes limit
+      -- Tidak redirect: key lengkap hanya ditampilkan di respons ini.
+      apiGateway c u (Just (name, full)) []
+
+apiKeyToggle :: Ctx -> Int -> IO Response
+apiKeyToggle c i =
+  withDb (cEnv c) (`findApiKey` i) >>= \case
+    Nothing -> notFound c
+    Just k -> do
+      withDb (cEnv c) $ \db -> updateApiKey db i (akName k) (akScopes k) (akRateLimit k) (not (akActive k))
+      redirectFlash "/admin/api#keys" "success" ("API key “" <> akName k <> "” " <> (if akActive k then "dinonaktifkan." else "diaktifkan."))
+
+apiKeyDelete :: Ctx -> Int -> IO Response
+apiKeyDelete c i =
+  withDb (cEnv c) (`findApiKey` i) >>= \case
+    Nothing -> notFound c
+    Just k -> do
+      withDb (cEnv c) (`deleteApiKey` i)
+      redirectFlash "/admin/api#keys" "success" ("API key “" <> akName k <> "” dihapus.")

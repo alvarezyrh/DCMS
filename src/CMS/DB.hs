@@ -69,6 +69,12 @@ migrate conn = do
     when (n == 0) $ mapM_ (void . createBranch conn) seedBranches
     execute_ conn "INSERT OR REPLACE INTO settings (key, value) VALUES ('branches_seeded', '1')"
     execute_ conn "INSERT OR REPLACE INTO settings (key, value) VALUES ('branches_geo_v1', '1')"
+  -- Urutan cabang dimulai dari 1 (versi awal memakai kelipatan 10). Sekali saja.
+  renum <- count1 conn "SELECT COUNT(*) FROM settings WHERE key = 'branches_sort_v2'" ()
+  when (renum == 0) $ withTransaction conn $ do
+    ids <- query_ conn "SELECT id FROM branches ORDER BY sort_order, id" :: IO [Only Int]
+    forM_ (zip [1 :: Int ..] ids) $ \(i, Only bid) -> execute conn "UPDATE branches SET sort_order = ? WHERE id = ?" (i, bid)
+    execute_ conn "INSERT OR REPLACE INTO settings (key, value) VALUES ('branches_sort_v2', '1')"
   -- Cabang hasil data awal versi sebelumnya: isi koordinat & perbaiki tautan peta yang
   -- salah di sumber. Hanya baris yang cocok persis dan belum punya koordinat.
   geoDone <- count1 conn "SELECT COUNT(*) FROM settings WHERE key = 'branches_geo_v1'" ()
@@ -81,6 +87,16 @@ migrate conn = do
         \ WHERE name = ? AND address = ? AND lat IS NULL"
         (biLat, biLng, biMapsUrl, biMapsUrl, biName, biAddress)
     execute_ conn "INSERT OR REPLACE INTO settings (key, value) VALUES ('branches_geo_v1', '1')"
+  -- API Gateway: key (hash) dan statistik pemakaian harian.
+  execute_ conn "CREATE TABLE IF NOT EXISTS api_keys (\
+                \ id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL,\
+                \ prefix TEXT NOT NULL, key_hash TEXT NOT NULL UNIQUE, scopes TEXT NOT NULL DEFAULT '*',\
+                \ rate_limit INTEGER NOT NULL DEFAULT 60, active INTEGER NOT NULL DEFAULT 1,\
+                \ created_at TEXT NOT NULL DEFAULT (datetime('now')), last_used_at TEXT)"
+  execute_ conn "CREATE TABLE IF NOT EXISTS api_usage (\
+                \ day TEXT NOT NULL, key_id INTEGER NOT NULL, api TEXT NOT NULL, status INTEGER NOT NULL,\
+                \ hits INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (day, key_id, api, status))"
+  execute_ conn "DELETE FROM api_usage WHERE day < date('now', '-400 days')"
   -- Gambar contoh pindah dari /static ke /asset/img.
   execute_ conn "UPDATE pages SET blocks = REPLACE(blocks, '/static/placeholder.svg', '/asset/img/placeholder.svg')\
                 \ WHERE blocks LIKE '%/static/placeholder.svg%'"
@@ -610,4 +626,72 @@ deleteBranch c i = execute c "DELETE FROM branches WHERE id = ?" (Only i)
 
 -- | Urutan berikutnya untuk cabang baru (di paling akhir).
 nextBranchSort :: Connection -> IO Int
-nextBranchSort c = maybe 10 ((+ 10) . fromOnly) . listToMaybe <$> query_ c "SELECT COALESCE(MAX(sort_order), 0) FROM branches"
+nextBranchSort c = maybe 1 ((+ 1) . fromOnly) . listToMaybe <$> query_ c "SELECT COALESCE(MAX(sort_order), 0) FROM branches"
+
+-- API Gateway --------------------------------------------------------------------------------
+
+apiKeySelect :: Query
+apiKeySelect = "SELECT id, name, prefix, key_hash, scopes, rate_limit, active, created_at, last_used_at FROM api_keys"
+
+listApiKeys :: Connection -> IO [ApiKey]
+listApiKeys c = query_ c (apiKeySelect <> " ORDER BY id DESC")
+
+findApiKey :: Connection -> Int -> IO (Maybe ApiKey)
+findApiKey c i = listToMaybe <$> query c (apiKeySelect <> " WHERE id = ?") (Only i)
+
+findApiKeyByHash :: Connection -> Text -> IO (Maybe ApiKey)
+findApiKeyByHash c h = listToMaybe <$> query c (apiKeySelect <> " WHERE key_hash = ?") (Only h)
+
+createApiKey :: Connection -> Text -> Text -> Text -> Text -> Int -> IO Int
+createApiKey c name prefix keyHash scopes limit = do
+  execute c "INSERT INTO api_keys (name, prefix, key_hash, scopes, rate_limit) VALUES (?,?,?,?,?)" (name, prefix, keyHash, scopes, limit)
+  lastId c
+
+updateApiKey :: Connection -> Int -> Text -> Text -> Int -> Bool -> IO ()
+updateApiKey c i name scopes limit active =
+  execute c "UPDATE api_keys SET name = ?, scopes = ?, rate_limit = ?, active = ? WHERE id = ?" (name, scopes, limit, active, i)
+
+deleteApiKey :: Connection -> Int -> IO ()
+deleteApiKey c i = execute c "DELETE FROM api_keys WHERE id = ?" (Only i)
+
+touchApiKey :: Connection -> Int -> IO ()
+touchApiKey c i = execute c "UPDATE api_keys SET last_used_at = datetime('now') WHERE id = ?" (Only i)
+
+-- | Catat satu panggilan API (key 0 = tanpa key / publik).
+recordApiHit :: Connection -> Int -> Text -> Int -> IO ()
+recordApiHit c keyId api status =
+  execute
+    c
+    "INSERT INTO api_usage (day, key_id, api, status, hits) VALUES (date('now','localtime'), ?, ?, ?, 1)\
+    \ ON CONFLICT (day, key_id, api, status) DO UPDATE SET hits = hits + 1"
+    (keyId, api, status)
+
+-- | Pemakaian n hari terakhir per API: (api, total, gagal [status >= 400]).
+apiUsageByApi :: Connection -> Int -> IO [(Text, Int, Int)]
+apiUsageByApi c days =
+  query
+    c
+    "SELECT api, SUM(hits), SUM(CASE WHEN status >= 400 THEN hits ELSE 0 END) FROM api_usage\
+    \ WHERE day > date('now','localtime', ?) GROUP BY api ORDER BY 2 DESC"
+    (Only ("-" <> T.pack (show days) <> " days"))
+
+-- | Pemakaian n hari terakhir per key: (key_id, total).
+apiUsageByKey :: Connection -> Int -> IO [(Int, Int)]
+apiUsageByKey c days =
+  query c "SELECT key_id, SUM(hits) FROM api_usage WHERE day > date('now','localtime', ?) GROUP BY key_id"
+    (Only ("-" <> T.pack (show days) <> " days"))
+
+-- | Pemakaian per hari (semua API): (tanggal, berhasil, gagal).
+apiUsageByDay :: Connection -> Int -> IO [(Text, Int, Int)]
+apiUsageByDay c days =
+  query
+    c
+    "SELECT day, SUM(CASE WHEN status < 400 THEN hits ELSE 0 END), SUM(CASE WHEN status >= 400 THEN hits ELSE 0 END)\
+    \ FROM api_usage WHERE day > date('now','localtime', ?) GROUP BY day ORDER BY day"
+    (Only ("-" <> T.pack (show days) <> " days"))
+
+getApiConfig :: Connection -> IO Text
+getApiConfig c = maybe "" fromOnly . listToMaybe <$> query_ c "SELECT value FROM settings WHERE key = 'api_config'"
+
+saveApiConfig :: Connection -> Text -> IO ()
+saveApiConfig c v = execute c "INSERT OR REPLACE INTO settings (key, value) VALUES ('api_config', ?)" (Only v)
