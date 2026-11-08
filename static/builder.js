@@ -27,6 +27,8 @@
     icon: "Ikon (kelas Font Awesome)",
     count: "Jumlah artikel (1–12)",
     interval: "Ganti slide otomatis tiap … detik (0 = mati)",
+    delay: "Muncul setelah … detik (0 = langsung)",
+    freq: "Seberapa sering tampil",
     layout: "Posisi gambar",
     url: "Tautan video YouTube",
     rating: "Jumlah bintang (1–5)",
@@ -52,6 +54,8 @@
     ],
     cols: [["auto", "Otomatis"], ["2", "2 kolom"], ["3", "3 kolom"], ["4", "4 kolom"]],
     featured: [["", "Tidak"], ["1", "Ya, tampilkan sebagai “Paling populer”"]],
+    // Harus sama dengan popupFreqs di CMS/Blocks.hs.
+    freq: [["session", "Sekali per kunjungan"], ["always", "Setiap halaman dibuka"], ["day", "Sekali sehari"], ["week", "Sekali seminggu"]],
     shape: [["rounded", "Membulat"], ["sharp", "Tajam (kotak)"], ["soft", "Sangat bulat"]],
     ishape: [["rounded", "Kotak membulat"], ["circle", "Lingkaran"], ["plain", "Tanpa latar"]]
   };
@@ -361,6 +365,10 @@
       var i = el.querySelector("i");
       if (i) i.className = v;
     }
+    if (el.hasAttribute("data-freq-chip")) {
+      var fo = OPTIONS.freq.filter(function (o) { return o[0] === v; })[0];
+      el.textContent = "Tampil: " + (fo ? fo[1] : v);
+    }
     if (el.hasAttribute("data-label")) el.textContent = el.getAttribute("data-label") + v + (el.getAttribute("data-suffix") || "");
     if (attr === "data-html" || attr === "data-css" || attr === "data-js") refreshCode(el);
     if (el.hasAttribute("data-hero-chip")) updateHero(el);
@@ -408,9 +416,10 @@
           e.preventDefault();
           document.execCommand("insertText", false, "  ");
         });
-      } else inp.type = field === "count" || field === "interval" ? "number" : "text";
+      } else inp.type = field === "count" || field === "interval" || field === "delay" ? "number" : "text";
       if (field === "count") { inp.min = 1; inp.max = 12; }
       if (field === "interval") { inp.min = 0; inp.max = 30; }
+      if (field === "delay") { inp.min = 0; inp.max = 60; }
       if (field === "href" || field === "href2") inp.placeholder = "/contact atau https://…";
       if (field === "src") inp.placeholder = "https://…/gambar.jpg";
       inp.value = el.getAttribute(attr) || (opts ? opts[0][0] : "");
@@ -684,30 +693,76 @@
         "--primary-ink:" + (isLight(nav.theme_primary) ? "#10201e" : "#ffffff") + ";";
     }
     if (nav.theme_font && FONTS[nav.theme_font]) out += "--font:" + FONTS[nav.theme_font][0] + ";";
+    if (nav.theme_bg) out += "--bg:" + nav.theme_bg + ";";
+    if (nav.theme_page) out += "--page-bg:" + nav.theme_page + ";";
+    if (nav.page_radius != null) out += "--page-radius:" + nav.page_radius + "px;";
     if (nav.site_width != null) out += "--site-w:" + nav.site_width + "px;";
     if (nav.site_pad != null) out += "--site-pad:" + nav.site_pad + "px;";
+    if (nav.logo_h != null) out += "--logo-h:" + nav.logo_h + "px;";
+    // Warna navigasi dipakai bersama oleh menu atas & bawah.
     [["top", "--nt"], ["bot", "--nb"]].forEach(function (g) {
       var p = g[0], pre = g[1];
-      if (nav[p + "_bg"]) out += pre + "-bg:" + rgba(nav[p + "_bg"], nav[p + "_opacity"] != null ? +nav[p + "_opacity"] : 90) + ";";
-      if (nav[p + "_text"]) out += pre + "-text:" + nav[p + "_text"] + ";";
-      if (nav[p + "_active"]) out += pre + "-active:" + nav[p + "_active"] + ";";
+      if (nav.nav_bg) out += pre + "-bg:" + rgba(nav.nav_bg, nav.nav_opacity != null ? +nav.nav_opacity : 90) + ";";
+      if (nav.nav_text) out += pre + "-text:" + nav.nav_text + ";";
+      if (nav.nav_active) out += pre + "-active:" + nav.nav_active + ";";
       ["pad", "gap", "offset", "icon", "radius"].forEach(function (k) {
         if (nav[p + "_" + k] != null) out += pre + "-" + k + ":" + nav[p + "_" + k] + "px;";
       });
+      // Panjang bar diatur manual (Lebar penuh tetap menang karena ditulis sesudahnya).
+      if (nav[p + "_width"] != null) out += pre + "-maxw:" + nav[p + "_width"] + "px;";
       if (nav[p + "_full"] === "1") {
-        out += pre + "-width:100%;" + pre + "-maxw:none;" + pre + "-side:max(var(--site-pad, 20px), calc((100% - var(--site-w, 1140px)) / 2 + var(--site-pad, 20px)));";
+        out += pre + "-width:100%;" + pre + "-maxw:none;" + pre + "-track:100%;" + pre + "-side:max(var(--site-pad, 20px), calc((100% - var(--site-w, 1140px)) / 2 + var(--site-pad, 20px)));";
         if (nav[p + "_offset"] == null) out += pre + "-offset:0px;";
         if (nav[p + "_radius"] == null) out += pre + "-radius:0px;";
       }
     });
+    if (nav.footer_bg) out += "--ft-bg:" + nav.footer_bg + ";";
+    if (nav.footer_fg) out += "--ft-text:" + nav.footer_fg + ";";
+    if (nav.footer_link) out += "--ft-link:" + nav.footer_link + ";";
+    [["footer_width", "--ft-w"], ["footer_offset", "--ft-offset"], ["footer_pad", "--ft-pad"], ["footer_radius", "--ft-radius"]].forEach(function (p) {
+      if (nav[p[0]] != null) out += p[1] + ":" + nav[p[0]] + "px;";
+    });
     return out ? ":root{" + out + "}" : "";
+  }
+
+  // Pratinjau logo website & footer (sama dengan siteBrand/siteFooter di CMS/Views/Layout.hs).
+  var fallbackLogo = navPanel ? navPanel.getAttribute("data-fallback-logo") || "" : "";
+  function applyBrand() {
+    var logo = nav.site_logo || fallbackLogo;
+    var hideName = !!logo && nav.brand_name === "0";
+    document.querySelectorAll("[data-site-brand]").forEach(function (a) {
+      var img = a.querySelector(".brand-logo"), name = a.querySelector(".brand-name");
+      if (logo) { img.src = logo; img.hidden = false; } else img.hidden = true;
+      a.classList.toggle("has-logo", !!logo);
+      name.classList.toggle("sr-only", hideName);
+    });
+    var prev = navPanel && navPanel.querySelector("[data-logo-preview]");
+    if (prev) {
+      if (logo) prev.src = logo;
+      prev.hidden = !logo;
+      navPanel.querySelector("[data-logo-empty]").hidden = !!logo;
+    }
+  }
+  function applyFooter() {
+    var ft = document.querySelector("[data-site-footer]");
+    if (!ft) return;
+    var t = ft.querySelector("[data-footer-text]"), cp = ft.querySelector("[data-footer-copy]");
+    if (t) t.textContent = nav.footer_text || t.getAttribute("data-footer-text");
+    if (cp) cp.textContent = (nav.footer_copy || cp.getAttribute("data-footer-copy")).split("{tahun}").join(cp.getAttribute("data-year") || "");
+    ft.classList.toggle("ft-no-brand", nav.footer_brand === "0");
+    ft.classList.toggle("ft-no-menu", nav.footer_menu === "0");
+    ft.classList.toggle("ft-no-social", nav.footer_social === "0");
+    ft.classList.toggle("ft-center", nav.footer_layout === "center");
+    ft.classList.toggle("ft-float", nav.footer_float === "1");
   }
 
   function navVal(input) {
     return input.type === "checkbox" ? (input.checked ? "1" : "0") : input.value;
   }
   // Pilihan tanpa status "bawaan" terpisah: checkbox & select.
-  function navPlain(input) { return input.type === "checkbox" || input.tagName === "SELECT"; }
+  function navPlain(input) { return input.type === "checkbox" || input.tagName === "SELECT" || navIsText(input); }
+  // Isian teks & URL logo: kosong = bawaan (tidak disimpan).
+  function navIsText(input) { return input.tagName === "TEXTAREA" || input.type === "text"; }
 
   function navShow(row, input) {
     var out = row.querySelector("[data-nav-out]");
@@ -719,6 +774,9 @@
 
   function navChanged() {
     if (navStyleEl) navStyleEl.textContent = navCss();
+    applyBrand();
+    applyFooter();
+    body.toggleAttribute("data-page-box", !!nav.theme_page);
     body.classList.toggle("pb-bot-off", nav.bot_enabled === "0");
     if (nav.theme_font) loadFont(nav.theme_font);
     navDirty = true;
@@ -729,6 +787,7 @@
     delete nav[input.getAttribute("data-nav-key")];
     if (input.type === "checkbox") { input.checked = input.getAttribute("data-default") === "1"; return; }
     if (input.tagName === "SELECT") { input.value = input.getAttribute("data-default"); return; }
+    if (navIsText(input)) { input.value = ""; return; }
     var row = input.closest(".pb-nav-row");
     if (input.type === "range") input.value = input.getAttribute("data-default");
     row.setAttribute("data-unset", "");
@@ -747,6 +806,7 @@
       var input = e.target.closest && e.target.closest("[data-nav-key]");
       if (!input) return;
       nav[input.getAttribute("data-nav-key")] = navVal(input);
+      if (navIsText(input) && !input.value.trim()) delete nav[input.getAttribute("data-nav-key")];
       var row = input.closest(".pb-nav-row");
       if (row) {
         row.removeAttribute("data-unset");
@@ -768,8 +828,16 @@
         navChanged();
       }
     });
+    // Tombol unggah logo website (memakai /admin/upload seperti gambar blok).
+    navPanel.querySelectorAll("[data-nav-image]").forEach(function (box) {
+      var input = box.querySelector("[data-nav-key]");
+      box.insertBefore(uploadRow(function (url) {
+        input.value = url;
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      }), input.nextSibling);
+    });
     // Navigasi bawah tersembunyi saat mengedit; tampilkan selama panelnya dibuka.
-    var botGroup = navPanel.querySelector('[data-nav-group="bot"]');
+    var botGroup = navPanel.querySelector('[data-nav-group="nav"]');
     if (botGroup) botGroup.addEventListener("toggle", function () {
       body.classList.toggle("pb-preview-bot", botGroup.open);
     });

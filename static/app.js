@@ -94,6 +94,36 @@
     });
   });
 
+  // ---------- Popup brosur/promo (blok "Popup gambar") ----------
+  // Muncul setelah data-delay detik. data-freq: session = sekali per kunjungan, day/week =
+  // sekali sehari/seminggu (disimpan di browser), always = setiap halaman dibuka.
+  if (!document.body.classList.contains("pb-editing")) {
+    document.querySelectorAll("dialog[data-img-popup]").forEach(function (dlg, i) {
+      var freq = dlg.getAttribute("data-freq") || "session";
+      var img = dlg.querySelector(".img-popup-img");
+      var key = "dcms-popup:" + location.pathname + ":" + i + ":" + (img ? img.getAttribute("src") : "");
+      var span = { day: 864e5, week: 7 * 864e5 }[freq];
+      var store = function () {
+        try { return freq === "session" ? window.sessionStorage : window.localStorage; } catch (e) { return null; }
+      };
+      if (freq !== "always") {
+        try {
+          var last = +(store() && store().getItem(key)) || 0;
+          if (last && (freq === "session" || Date.now() - last < span)) return;
+        } catch (e) { /* penyimpanan diblokir: tetap tampilkan */ }
+      }
+      var close = function () { if (dlg.open) dlg.close ? dlg.close() : dlg.removeAttribute("open"); };
+      dlg.addEventListener("click", function (e) {
+        // Klik tombol ×, atau area gelap di luar kotak, menutup popup.
+        if (e.target === dlg || e.target.closest("[data-popup-close]")) close();
+      });
+      setTimeout(function () {
+        if (typeof dlg.showModal === "function") dlg.showModal(); else dlg.setAttribute("open", "");
+        try { if (freq !== "always" && store()) store().setItem(key, String(Date.now())); } catch (e) { /* abaikan */ }
+      }, Math.max(0, +dlg.getAttribute("data-delay") || 0) * 1000);
+    });
+  }
+
   // ---------- Popup gambar ----------
   // Gambar konten bisa diklik untuk dibuka besar. Aktif bila <body data-lightbox> (bisa
   // dimatikan di page builder) dan tidak sedang mengedit halaman.
@@ -644,6 +674,63 @@
       var cfg = widgetForm.closest("details");
       if (cfg && cfg.open && !cfg.contains(e.target)) cfg.open = false;
     });
+  }
+
+  // Menu "⋯" di tabel: tutup saat klik di luar atau menu lain dibuka.
+  document.addEventListener("click", function (e) {
+    document.querySelectorAll("details.row-menu[open]").forEach(function (d) {
+      if (!d.contains(e.target)) d.open = false;
+    });
+  });
+
+  // ---------- Form halaman: alamat otomatis, ikon menu, pratinjau Google ----------
+  var pageForm = document.getElementById("page-form");
+  if (pageForm) {
+    var pq = function (sel) { return pageForm.querySelector(sel); };
+    var pTitle = pq("#page-title"), pSlug = pq("#page-slug"), pIcon = pq("#page-icon"), pPrev = pq("#icon-preview");
+    var pSt = pq("#seo_title"), pSd = pq("#seo_desc"), pCopy = pq("#copy_from"), pTpl = pq(".tpl-grid");
+    var pSite = pageForm.getAttribute("data-site"), pOrigin = pageForm.getAttribute("data-origin");
+    var pDesc = document.getElementById("pserp-desc");
+    var pageSlugify = function (s) {
+      return s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 50).replace(/-+$/, "");
+    };
+    var pageUpdate = function () {
+      var t = pTitle.value.trim();
+      if (!pSlug.disabled) pSlug.placeholder = pageSlugify(t) || "otomatis-dari-judul";
+      document.getElementById("pserp-url").textContent = pOrigin + " › " + (pSlug.value.trim() || pSlug.placeholder);
+      document.getElementById("pserp-title").textContent = pSt.value.trim() || ((t || "Judul halaman") + " · " + pSite);
+      pDesc.textContent = pSd.value.trim() || pDesc.getAttribute("data-default") || "Deskripsi halaman akan tampil di sini.";
+      pageForm.querySelectorAll("[data-count-for]").forEach(function (sp) {
+        var el = document.getElementById(sp.getAttribute("data-count-for")), mx = +el.getAttribute("data-max"), n = el.value.length;
+        sp.textContent = n + "/" + mx;
+        sp.className = n > mx ? "over" : "";
+      });
+    };
+    var setIcon = function (cls) {
+      var i = document.createElement("i");
+      i.className = cls.trim() || "fa-regular fa-file-lines";
+      i.setAttribute("aria-hidden", "true");
+      pPrev.replaceChildren(i);
+      pageForm.querySelectorAll(".icon-pick").forEach(function (b) {
+        b.classList.toggle("active", b.getAttribute("data-icon") === cls.trim());
+      });
+    };
+    [pTitle, pSlug, pSt, pSd].forEach(function (el) { el.addEventListener("input", pageUpdate); });
+    pIcon.addEventListener("input", function () { setIcon(pIcon.value); });
+    pageForm.addEventListener("click", function (e) {
+      var b = e.target.closest(".icon-pick");
+      if (!b) return;
+      pIcon.value = b.getAttribute("data-icon");
+      setIcon(pIcon.value);
+    });
+    // Saat menyalin halaman lain, pilihan templat tidak dipakai.
+    if (pCopy && pTpl) {
+      var syncCopy = function () { pTpl.classList.toggle("tpl-off", pCopy.value !== ""); };
+      pCopy.addEventListener("change", syncCopy);
+      syncCopy();
+    }
+    pageUpdate();
   }
 
   var body = document.getElementById("body");

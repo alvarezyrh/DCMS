@@ -13,7 +13,7 @@ import qualified Data.ByteString.Lazy as BL
 
 import CMS.Auth
 import CMS.RateLimit (blockedFor, clearKeys, recordFailure)
-import CMS.Blocks (Page (..), SitePage (..), pagePath, postsWanted, sitePages)
+import CMS.Blocks (Page (..), pagePath, postsWanted)
 import CMS.DB
 import CMS.Types
 import CMS.Util
@@ -43,23 +43,27 @@ latestPosts c n
   | n <= 0 = pure []
   | otherwise = fst <$> withDb (cEnv c) (\db -> listPosts db noFilter {fStatus = Just Published} ByPublished 1 n)
 
--- | Halaman situs dari page builder (Home, About Us, Services, Branch, Contact).
+-- | Halaman dari page builder: bawaan (Home, About Us, …) atau buatan sendiri.
+-- Halaman draf hanya bisa dibuka Admin/Editor.
 sitePage :: Ctx -> Text -> IO Response
 sitePage c slug =
   withDb (cEnv c) (`findPage` slug) >>= \case
-    Nothing -> notFound c
-    Just pg -> do
+    Just pg | visible c pg -> do
       let edit = editMode c
       posts <- latestPosts c (if edit then 6 else postsWanted (pageBlocks pg))
       pd <- pageData c pg edit posts
       ok (pageView c pg edit pd mempty)
+    _ -> notFound c
+
+-- | Halaman terbit untuk semua orang; draf hanya untuk Admin/Editor.
+visible :: Ctx -> Page -> Bool
+visible c pg = pagePublished pg || maybe False isStaff (cUser c)
 
 -- | Blog: blok builder di atas, lalu daftar artikel + pencarian + paginasi.
 blogPage :: Ctx -> IO Response
 blogPage c =
   withDb (cEnv c) (`findPage` "blog") >>= \case
-    Nothing -> notFound c
-    Just pg -> do
+    Just pg | visible c pg -> do
       let edit = editMode c
           q = paramT c "q"
           page = pageParam c
@@ -72,6 +76,7 @@ blogPage c =
       latest <- latestPosts c (if edit then 6 else postsWanted (pageBlocks pg))
       pd <- pageData c pg edit latest
       ok (pageView c pg edit pd (blogListing edit cats posts q page (totalPages total per)))
+    _ -> notFound c
 
 -- | Data dinamis untuk blok halaman; cabang hanya diambil bila dipakai.
 pageData :: Ctx -> Page -> Bool -> [Post] -> IO PageData
@@ -217,7 +222,7 @@ validEmail e = case T.splitOn "@" e of
 -- | /sitemap.xml: halaman situs, artikel terbit (kecuali noindex), dan kategori.
 sitemap :: Ctx -> IO Response
 sitemap c = do
-  (posts, cats) <- withDb (cEnv c) $ \db -> (,) <$> sitemapPosts db <*> listCategories db
+  (pages, posts, cats) <- withDb (cEnv c) $ \db -> (,,) <$> sitemapPages db <*> sitemapPosts db <*> listCategories db
   let origin = siteOrigin c
       url loc lastmod =
         "<url><loc>" <> xmlEsc (origin <> loc) <> "</loc>"
@@ -225,7 +230,7 @@ sitemap c = do
           <> "</url>"
       body =
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n"
-          <> T.concat [url (pagePath (spSlug sp)) Nothing <> "\n" | sp <- sitePages]
+          <> T.concat [url (pagePath s) (Just (T.take 10 d)) <> "\n" | (s, d) <- pages]
           <> T.concat [url ("/post/" <> s) (Just d) <> "\n" | (s, d) <- posts]
           <> T.concat [url ("/category/" <> catSlug k) Nothing <> "\n" | k <- cats, catCount k > 0]
           <> "</urlset>\n"

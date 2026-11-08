@@ -36,6 +36,7 @@ library
     CMS.Web
     CMS.Views.Layout
     CMS.Views.Public
+    CMS.Views.PageAdmin
     CMS.Views.Site
     CMS.Views.SeoAdmin
     CMS.Views.BranchAdmin

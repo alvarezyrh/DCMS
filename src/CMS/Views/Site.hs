@@ -40,20 +40,39 @@ needsBranches edit pg = edit || any ((== "branchdir") . bType) (pageBlocks pg)
 -- | Halaman builder. @extra@ dirender di bawah blok (dipakai daftar artikel di Blog).
 pageView :: Ctx -> Page -> Bool -> PageData -> Html () -> Html ()
 pageView c pg edit pd extra =
-  siteLayout c (pageSlug pg) (pageTitle pg) bodyAttrs $ do
+  siteLayoutMeta c (pageSlug pg) meta bodyAttrs $ do
     when edit (editorBar c pg)
     main_ [class_ "site-main"] $ do
       forM_ (cFlash c) $ \_ -> div_ [class_ "wrap flash-wrap"] (flashBox c)
+      unless (pagePublished pg || edit) $
+        div_ [class_ "wrap flash-wrap"] $
+          div_ [class_ "flash flash-info draft-note", role_ "status"] $ do
+            icon "fa-solid fa-eye-slash"
+            " Halaman ini masih "
+            strong_ "draf"
+            " — hanya terlihat oleh Admin & Editor. "
+            a_ [href_ ("/admin/pages/" <> pageSlug pg <> "/settings")] "Terbitkan di pengaturan halaman"
+
       div_ [id_ "pb-canvas"] (mapM_ (renderBlock edit pd) (pageBlocks pg))
       extra
     if edit
-      then editorPalette (setNav (cSettings c)) pd
+      then editorPalette (cSettings c) pd
       else when canEdit $
         a_ [href_ (pagePath (pageSlug pg) <> "?edit=1"), target_ "_blank", rel_ "noopener", class_ "pb-fab"] $ do
           icon "fa-solid fa-pen"
           "Edit halaman"
   where
     canEdit = maybe False isStaff (cUser c)
+    seo = pageSeo pg
+    meta =
+      PageMeta
+        { pmTitle = if isBlank (seoTitle seo) then pageTitle pg <> " · " <> siteName c else seoTitle seo
+        , pmDesc = if isBlank (seoDesc seo) then Nothing else Just (seoDesc seo)
+        , pmImage = if isBlank (seoImage seo) then Nothing else Just (seoImage seo)
+        , pmType = "website"
+        , pmNoindex = seoNoindex seo || not (pagePublished pg)
+        , pmExtra = mempty
+        }
     bodyAttrs = if edit then [class_ "site pb-editing", data_ "page" (pageSlug pg)] else [class_ "site"]
 
 -- | Daftar artikel di halaman Blog (tidak bisa diedit: isinya dari menu Artikel).
@@ -203,6 +222,34 @@ renderBlock edit pd b = case bType b of
       when edit $
         span_ [class_ "pb-chip slider-interval", data_ "fa" "interval:data-interval", data_ "interval" intervalT, data_ "label" "Ganti otomatis: ", data_ "suffix" " detik"] $
           toHtml ("Ganti otomatis: " <> intervalT <> " detik")
+  -- Popup gambar (brosur/promo): muncul di tengah layar saat halaman dibuka (static/app.js).
+  -- Saat mengedit tampil sebagai kartu agar gambar, tombol, dan pengaturannya bisa diubah.
+  "popup"
+    | edit -> section $ div_ [class_ "popup-edit"] $ do
+        div_ [class_ "popup-edit-info"] $ do
+          div_ [class_ "popup-edit-head"] $ do
+            span_ [class_ "pb-ico"] (icon "fa-regular fa-window-restore")
+            div_ $ do
+              strong_ "Popup gambar"
+              p_ [class_ "muted"] "Muncul otomatis di tengah layar saat pengunjung membuka halaman ini. Klik gambar untuk mengganti (mis. brosur atau promo), klik tombol untuk mengubah teks & tautannya. Kosongkan teks tombol bila tidak perlu."
+          div_ [class_ "popup-edit-chips"] $ do
+            span_ [class_ "pb-chip", data_ "fa" "delay:data-delay", data_ "delay" delayT, data_ "label" "Muncul setelah: ", data_ "suffix" " detik"] $
+              toHtml ("Muncul setelah: " <> delayT <> " detik")
+            span_ [class_ "pb-chip", data_ "fa" "freq:data-freq", data_ "freq" freqT, data_ "freq-chip" ""] $
+              toHtml ("Tampil: " <> freqLabel)
+        div_ [class_ "popup-edit-preview img-popup-box"] $ do
+          pic fs "img-popup-img"
+          btnLink fs "btn img-popup-btn" "btn" "href"
+    | T.null (fieldOf "src" fs) -> mempty
+    | otherwise ->
+        term "dialog" [class_ "img-popup", data_ "img-popup" "", data_ "delay" delayT, data_ "freq" freqT, makeAttribute "aria-label" (if isBlank (fieldOf "alt" fs) then "Informasi" else fieldOf "alt" fs)] $
+          div_ [class_ "img-popup-box"] $ do
+            button_ [type_ "button", class_ "img-popup-close", data_ "popup-close" "", makeAttribute "aria-label" "Tutup"] (icon "fa-solid fa-xmark")
+            let img = img_ [class_ "img-popup-img", src_ (fieldOf "src" fs), alt_ (fieldOf "alt" fs)]
+                href = fieldOf "href" fs
+            if T.null href then img else a_ [href_ href] img
+            unless (isBlank (fieldOf "btn" fs)) $
+              a_ [class_ "btn img-popup-btn", href_ (if T.null href then "#" else href)] (toHtml (fieldOf "btn" fs))
   "image" -> section $ figure_ [class_ "pb-figure"] $ do
     pic fs "pb-img"
     txt fs figcaption_ [] "caption" "Keterangan gambar (opsional)"
@@ -307,6 +354,9 @@ renderBlock edit pd b = case bType b of
     fs = bFields b
     countT = let v = fieldOf "count" fs in if T.null v then "3" else v
     intervalT = let v = fieldOf "interval" fs in if T.null v then "5" else v
+    delayT = let v = fieldOf "delay" fs in if T.null v then "2" else v
+    freqT = let v = fieldOf "freq" fs in if v `elem` map fst popupFreqs then v else "session"
+    freqLabel = fromMaybe "" (lookup freqT popupFreqs)
     heroSrc = fieldOf "src" fs
     heroLayout = let v = fieldOf "layout" fs in if v `elem` ["left", "bg"] then v else "right"
     heroCls = "hero-" <> heroLayout <> if T.null heroSrc then "" else " has-img"
@@ -426,14 +476,16 @@ editorBar c pg =
       span_ $ do
         "Mengedit "
         strong_ (toHtml (pageTitle pg))
+      unless (pagePublished pg) $ span_ [class_ "badge badge-draft"] "Draf"
     span_ [id_ "pb-status", class_ "pb-status", role_ "status"] "Belum ada perubahan"
     div_ [class_ "pb-bar-actions"] $ do
       a_ [href_ "/admin/pages", class_ "btn btn-ghost btn-sm"] (icon "fa-solid fa-table-list" >> "Semua halaman")
+      a_ [href_ ("/admin/pages/" <> pageSlug pg <> "/settings"), class_ "btn btn-ghost btn-sm"] (icon "fa-solid fa-sliders" >> "Pengaturan")
       a_ [href_ (pagePath (pageSlug pg)), class_ "btn btn-ghost btn-sm"] (icon "fa-solid fa-eye" >> "Selesai")
       button_ [type_ "button", id_ "pb-save", class_ "btn btn-sm"] (icon "fa-solid fa-floppy-disk" >> "Simpan")
 
-editorPalette :: NavStyle -> PageData -> Html ()
-editorPalette nav pd = do
+editorPalette :: Settings -> PageData -> Html ()
+editorPalette st pd = do
   aside_ [class_ "pb-palette", data_ "palette" ""] $ do
     h2_ "Tambah blok"
     p_ [class_ "muted"] "Seret blok ke halaman, atau klik untuk menambah di paling bawah."
@@ -442,7 +494,7 @@ editorPalette nav pd = do
         button_ [type_ "button", class_ "pb-pal", makeAttribute "draggable" "true", data_ "type" (spType sp)] $ do
           icon (spIcon sp)
           span_ (toHtml (spLabel sp))
-    navPanel nav
+    navPanel st
     div_ [class_ "pb-help"] $ do
       p_ (icon "fa-solid fa-i-cursor" >> " Klik teks untuk mengubahnya.")
       p_ (icon "fa-solid fa-link" >> " Klik tombol, gambar, atau ikon untuk mengganti tautan/gambar/ikon.")
@@ -450,15 +502,15 @@ editorPalette nav pd = do
       p_ (icon "fa-regular fa-keyboard" >> " Ctrl+S untuk menyimpan.")
   forM_ blockSpecs $ \sp ->
     term "template" [data_ "tpl" (spType sp)] (renderBlock True pd (spDefault sp))
-  script_ [src_ "/static/builder.js?v=13", defer_ "defer"] ("" :: Text)
+  script_ [src_ "/static/builder.js?v=20", defer_ "defer"] ("" :: Text)
 
--- | Pengaturan warna & jarak navigasi atas/bawah. Nilai dibaca static/builder.js,
--- dipratinjau langsung, dan ikut terkirim saat Simpan.
-navPanel :: NavStyle -> Html ()
-navPanel s =
-  div_ [class_ "pb-nav-section", data_ "nav-panel" ""] $ do
+-- | Pengaturan tampilan situs (gaya, ukuran, logo, navigasi, footer). Nilai dibaca
+-- static/builder.js, dipratinjau langsung, dan ikut terkirim saat Simpan.
+navPanel :: Settings -> Html ()
+navPanel st =
+  div_ [class_ "pb-nav-section", data_ "nav-panel" "", data_ "fallback-logo" (setLogo st)] $ do
     h2_ "Tampilan situs"
-    p_ [class_ "muted"] "Ukuran website serta warna & jarak menu atas dan bawah. Berlaku di semua halaman."
+    p_ [class_ "muted"] "Gaya, ukuran, logo, navigasi, dan footer. Berlaku di semua halaman."
     forM_ navGroups $ \g ->
       details_ [class_ "pb-nav", data_ "nav-group" (ngId g)] $ do
         summary_ $ do
@@ -470,12 +522,33 @@ navPanel s =
           button_ [type_ "button", class_ "btn btn-ghost btn-sm", data_ "nav-reset" (ngId g)] $
             icon "fa-solid fa-rotate-left" >> "Kembalikan bawaan"
   where
+    s = setNav st
     row :: NavField -> Html ()
     row f = do
       let k = nfKey f
           cur = M.lookup k s
           fid = "nav-" <> k
       case nfKind f of
+        NavHeading -> h3_ [class_ "pb-nav-sub"] (toHtml (nfLabel f))
+        NavText mx multi ph ->
+          label_ [class_ "pb-nav-text", for_ fid] $ do
+            span_ (toHtml (nfLabel f))
+            let attrs = [id_ fid, data_ "nav-key" k, data_ "default" "", placeholder_ ph, makeAttribute "maxlength" (tshow mx)]
+            if multi
+              then textarea_ (attrs <> [rows_ "3"]) (toHtml (fromMaybe "" cur))
+              else input_ (attrs <> [type_ "text", value_ (fromMaybe "" cur)])
+        NavImage -> do
+          let shown = fromMaybe (setLogo st) cur
+          div_ [class_ "pb-nav-image", data_ "nav-image" ""] $ do
+            span_ (toHtml (nfLabel f))
+            div_ [class_ "pb-logo-box"] $ do
+              img_ ([src_ (if T.null shown then "/asset/img/placeholder.svg" else shown), alt_ "", data_ "logo-preview" ""] <> [makeAttribute "hidden" "" | T.null shown])
+              span_ ([class_ "muted", data_ "logo-empty" ""] <> [makeAttribute "hidden" "" | not (T.null shown)]) "Belum ada logo"
+            input_ [type_ "text", id_ fid, data_ "nav-key" k, data_ "default" "", value_ (fromMaybe "" cur), placeholder_ "/asset/img/… atau https://…", makeAttribute "aria-label" "URL logo"]
+            small_ [class_ "muted"] $
+              if T.null (setLogo st)
+                then "PNG/WebP transparan paling bagus. Kosong = hanya nama situs."
+                else "PNG/WebP transparan paling bagus. Kosong = memakai logo dashboard (menu Pengaturan)." 
         NavToggle def ->
           label_ [class_ "switch-row pb-nav-switch", for_ fid] $ do
             span_ (toHtml (nfLabel f))
@@ -510,6 +583,7 @@ navPanel s =
     -- Warna awal pemilih warna bila belum diatur (mendekati tampilan bawaan).
     colorHint :: Text -> Text
     colorHint k
+      | k == "theme_bg" = "#f5f7f7"
       | "_bg" `T.isSuffixOf` k = "#ffffff"
       | "_text" `T.isSuffixOf` k = "#1c2524"
       | otherwise = "#0f766e"

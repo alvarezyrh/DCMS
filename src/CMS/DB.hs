@@ -97,6 +97,18 @@ migrate conn = do
                 \ day TEXT NOT NULL, key_id INTEGER NOT NULL, api TEXT NOT NULL, status INTEGER NOT NULL,\
                 \ hits INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (day, key_id, api, status))"
   execute_ conn "DELETE FROM api_usage WHERE day < date('now', '-400 days')"
+  -- Halaman buatan pengguna: status, menu, dan SEO per halaman.
+  forM_
+    [ ("status", "TEXT NOT NULL DEFAULT 'published'"), ("in_menu", "INTEGER NOT NULL DEFAULT 1")
+    , ("menu_order", "INTEGER NOT NULL DEFAULT 0"), ("icon", "TEXT NOT NULL DEFAULT ''")
+    , ("seo_title", "TEXT NOT NULL DEFAULT ''"), ("seo_desc", "TEXT NOT NULL DEFAULT ''")
+    , ("seo_image", "TEXT NOT NULL DEFAULT ''"), ("seo_noindex", "INTEGER NOT NULL DEFAULT 0")
+    , ("created_at", "TEXT NOT NULL DEFAULT ''")
+    ]
+    $ \(col, def) -> do
+      has <- count1 conn "SELECT COUNT(*) FROM pragma_table_info('pages') WHERE name = ?" (Only (col :: Text))
+      when (has == 0) $ execute_ conn (Query ("ALTER TABLE pages ADD COLUMN " <> col <> " " <> def))
+  execute_ conn "UPDATE pages SET created_at = updated_at WHERE created_at = ''"
   -- Gambar contoh pindah dari /static ke /asset/img.
   execute_ conn "UPDATE pages SET blocks = REPLACE(blocks, '/static/placeholder.svg', '/asset/img/placeholder.svg')\
                 \ WHERE blocks LIKE '%/static/placeholder.svg%'"
@@ -472,8 +484,17 @@ saveSettings c Settings {..} = withTransaction c $
 -- | Buat halaman bawaan yang belum ada (tidak menimpa yang sudah diedit).
 seedPages :: Connection -> IO ()
 seedPages c = do
-  forM_ sitePages $ \sp ->
-    execute c "INSERT OR IGNORE INTO pages (slug, title, blocks) VALUES (?,?,?)" (spSlug sp, spTitle sp, encodeBlocks (spDefaults sp))
+  forM_ (zip [1 :: Int ..] sitePages) $ \(i, sp) ->
+    execute
+      c
+      "INSERT OR IGNORE INTO pages (slug, title, blocks, menu_order, icon, created_at) VALUES (?,?,?,?,?, datetime('now'))"
+      (spSlug sp, spTitle sp, encodeBlocks (spDefaults sp), i, defaultPageIcon (spSlug sp))
+  -- Sekali saja: urutan & ikon menu halaman bawaan di database lama (sebelumnya tetap di kode).
+  menuDone <- count1 c "SELECT COUNT(*) FROM settings WHERE key = 'pages_menu_v1'" ()
+  when (menuDone == 0) $ withTransaction c $ do
+    forM_ (zip [1 :: Int ..] sitePages) $ \(i, sp) ->
+      execute c "UPDATE pages SET menu_order = ?, icon = CASE WHEN icon = '' THEN ? ELSE icon END WHERE slug = ?" (i, defaultPageIcon (spSlug sp), spSlug sp)
+    execute_ c "INSERT OR REPLACE INTO settings (key, value) VALUES ('pages_menu_v1', '1')"
   -- Sekali saja: halaman Branch memakai direktori cabang otomatis (dari menu Cabang)
   -- menggantikan blok "Daftar cabang" yang diisi manual. Judulnya dipertahankan.
   done <- count1 c "SELECT COUNT(*) FROM settings WHERE key = 'branch_page_dir'" ()
@@ -488,14 +509,71 @@ seedPages c = do
       savePageBlocks c "branch" blocks'
     execute_ c "INSERT OR REPLACE INTO settings (key, value) VALUES ('branch_page_dir', '1')"
 
-findPage :: Connection -> Text -> IO (Maybe Page)
-findPage c slug = listToMaybe <$> query c "SELECT slug, title, blocks, updated_at FROM pages WHERE slug = ?" (Only slug)
+pageSelect :: Query
+pageSelect = Query ("SELECT " <> pageColumns <> " FROM pages")
 
--- | Halaman dalam urutan menu situs.
+findPage :: Connection -> Text -> IO (Maybe Page)
+findPage c slug = listToMaybe <$> query c (pageSelect <> " WHERE slug = ?") (Only slug)
+
+-- | Semua halaman dalam urutan menu situs.
 listPages :: Connection -> IO [Page]
-listPages c = do
-  ps <- query_ c "SELECT slug, title, blocks, updated_at FROM pages"
-  pure [p | sp <- sitePages, p <- ps, pageSlug p == spSlug sp]
+listPages c = query_ c (pageSelect <> " ORDER BY menu_order, created_at, slug")
+
+-- | Menu situs: (slug, judul, ikon) halaman terbit yang ditampilkan di menu.
+listMenu :: Connection -> IO [(Text, Text, Text)]
+listMenu c =
+  query_ c "SELECT slug, title, icon FROM pages WHERE status = 'published' AND in_menu = 1 ORDER BY menu_order, created_at, slug"
+
+pageSlugTaken :: Connection -> Text -> IO Bool
+pageSlugTaken c s = (> 0) <$> count1 c "SELECT COUNT(*) FROM pages WHERE slug = ?" (Only s)
+
+-- | Buat halaman baru di urutan terakhir menu.
+createPage :: Connection -> PageInput -> [Block] -> IO ()
+createPage c PageInput {..} bs =
+  execute
+    c
+    "INSERT INTO pages (slug, title, blocks, status, in_menu, menu_order, icon, seo_title, seo_desc, seo_image, seo_noindex, created_at, updated_at)\
+    \ VALUES (?,?,?,?,?, (SELECT COALESCE(MAX(menu_order), 0) + 1 FROM pages), ?,?,?,?,?, datetime('now'), datetime('now'))"
+    ( (pgiSlug, pgiTitle, encodeBlocks bs, pageStatusText pgiPublished, pgiInMenu)
+        :. (pgiIcon, seoTitle pgiSeo, seoDesc pgiSeo, seoImage pgiSeo, seoNoindex pgiSeo)
+    )
+
+-- | Ubah pengaturan halaman (bukan isinya). Slug lama -> slug baru (boleh sama).
+updatePageMeta :: Connection -> Text -> PageInput -> IO ()
+updatePageMeta c old PageInput {..} =
+  execute
+    c
+    "UPDATE pages SET slug = ?, title = ?, status = ?, in_menu = ?, icon = ?,\
+    \ seo_title = ?, seo_desc = ?, seo_image = ?, seo_noindex = ?, updated_at = datetime('now') WHERE slug = ?"
+    ( (pgiSlug, pgiTitle, pageStatusText pgiPublished, pgiInMenu, pgiIcon)
+        :. (seoTitle pgiSeo, seoDesc pgiSeo, seoImage pgiSeo, seoNoindex pgiSeo, old)
+    )
+
+setPagePublished :: Connection -> Text -> Bool -> IO ()
+setPagePublished c slug on =
+  execute c "UPDATE pages SET status = ?, updated_at = datetime('now') WHERE slug = ?" (pageStatusText on, slug)
+
+deletePage :: Connection -> Text -> IO ()
+deletePage c slug = execute c "DELETE FROM pages WHERE slug = ?" (Only slug)
+
+-- | Geser halaman satu posisi di menu (-1 = naik, 1 = turun), lalu nomori ulang 1..n.
+movePage :: Connection -> Text -> Int -> IO ()
+movePage c slug dir = withTransaction c $ do
+  slugs <- map fromOnly <$> query_ c "SELECT slug FROM pages ORDER BY menu_order, created_at, slug"
+  let reordered = case break (== slug) slugs of
+        (before, x : after)
+          | dir < 0, not (null before) -> init before ++ [x, last before] ++ after
+          | dir > 0, (y : rest) <- after -> before ++ [y, x] ++ rest
+        _ -> slugs
+  forM_ (zip [1 :: Int ..] reordered) $ \(i, s) -> execute c "UPDATE pages SET menu_order = ? WHERE slug = ?" (i, s :: Text)
+
+pageStatusText :: Bool -> Text
+pageStatusText on = if on then "published" else "draft"
+
+-- | Halaman untuk sitemap: terbit dan tidak noindex, dengan tanggal ubah.
+sitemapPages :: Connection -> IO [(Text, Text)]
+sitemapPages c =
+  query_ c "SELECT slug, updated_at FROM pages WHERE status = 'published' AND seo_noindex = 0 ORDER BY menu_order, created_at"
 
 savePageBlocks :: Connection -> Text -> [Block] -> IO ()
 savePageBlocks c slug bs =

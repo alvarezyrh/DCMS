@@ -13,8 +13,8 @@ import qualified Data.Text as T
 import Lucid
 import Lucid.Base (makeAttribute)
 
-import CMS.Blocks (SitePage (..), pagePath, sitePages)
-import CMS.NavStyle (fontLink, lightboxOn, navBottomOn, navCss, revealOn, toTopOn)
+import CMS.Blocks (defaultPageIcon, pagePath)
+import CMS.NavStyle (fontLink, lightboxOn, navBottomOn, navCss, navFlag, navText, pageBoxOn, revealOn, siteLogo, toTopOn)
 import CMS.Util (isBlank)
 import CMS.Types
 import CMS.Web (paramT, siteOrigin, urlWith)
@@ -35,8 +35,8 @@ headWith title extra = head_ $ do
   link_ [rel_ "preconnect", href_ "https://fonts.gstatic.com", crossorigin_ ""]
   link_ [rel_ "stylesheet", href_ "https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800&display=swap"]
   link_ [rel_ "stylesheet", href_ "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css", crossorigin_ "anonymous", makeAttribute "referrerpolicy" "no-referrer"]
-  link_ [rel_ "stylesheet", href_ "/static/style.css?v=31"]
-  script_ [src_ "/static/app.js?v=20", defer_ "defer"] ("" :: Text)
+  link_ [rel_ "stylesheet", href_ "/static/style.css?v=41"]
+  script_ [src_ "/static/app.js?v=23", defer_ "defer"] ("" :: Text)
   extra
 
 csrfField :: Ctx -> Html ()
@@ -156,13 +156,13 @@ siteLayoutMeta c active meta bodyAttrs content = doctypehtml_ $ do
     forM_ (fontLink nav) $ \u -> link_ [rel_ "stylesheet", href_ u, id_ "theme-font"]
     -- Selalu dirender (walau kosong) supaya builder bisa memperbaruinya untuk pratinjau.
     style_ [id_ "nav-style"] (navCss nav)
-  body_ (bodyAttrs <> [data_ "lightbox" "" | lightboxOn nav] <> [data_ "reveal" "" | revealOn nav]) $ do
+  body_ (bodyAttrs <> [data_ "lightbox" "" | lightboxOn nav] <> [data_ "reveal" "" | revealOn nav] <> [data_ "page-box" "" | pageBoxOn nav]) $ do
     siteHeader c active
     content
     siteFooter c
     floatingButtons c
     -- Saat mengedit selalu dirender agar bisa dipratinjau walau sedang dimatikan.
-    when (navBottomOn (setNav (cSettings c)) || editing) (tabBar active)
+    when (navBottomOn (setNav (cSettings c)) || editing) (tabBar c active)
   where
     nav = setNav (cSettings c)
     editing = paramT c "edit" == "1" && maybe False isStaff (cUser c)
@@ -262,12 +262,12 @@ siteHeader :: Ctx -> Text -> Html ()
 siteHeader c active =
   header_ [class_ "site-header", data_ "site-header" ""] $
     div_ [class_ "wrap header-inner"] $ do
-      brandLink c "/" "brand"
+      siteBrand c
       nav_ [class_ "site-menu", id_ "site-menu", makeAttribute "aria-label" "Menu utama"] $
-        forM_ sitePages $ \sp ->
-          a_ ([href_ (pagePath (spSlug sp))] <> [class_ "active" | spSlug sp == active] <> [makeAttribute "aria-current" "page" | spSlug sp == active]) $ do
-            icon (pageIcon (spSlug sp))
-            span_ (toHtml (spTitle sp))
+        forM_ (cMenu c) $ \(slug, title, ic) ->
+          a_ ([href_ (pagePath slug)] <> [class_ "active" | slug == active] <> [makeAttribute "aria-current" "page" | slug == active]) $ do
+            icon (menuIcon slug ic)
+            span_ (toHtml title)
       div_ [class_ "site-actions"] $ do
         case cUser c of
           Just _ -> a_ [href_ "/admin", class_ "btn btn-sm site-cta", title_ "Dashboard"] (icon "fa-solid fa-gauge-high" >> span_ [class_ "site-cta-label"] "Dashboard")
@@ -279,39 +279,61 @@ siteHeader c active =
           (span_ [class_ "nav-toggle-bars", makeAttribute "aria-hidden" "true"] (span_ "" >> span_ "" >> span_ ""))
 
 -- | Navigasi bawah ala iOS (ikon + judul). Muncul saat halaman digulir ke bawah (app.js).
-tabBar :: Text -> Html ()
-tabBar active =
+-- Maksimal 6 halaman pertama menu supaya tetap muat di layar HP.
+tabBar :: Ctx -> Text -> Html ()
+tabBar c active =
   nav_ [class_ "tabbar", makeAttribute "aria-label" "Navigasi cepat", makeAttribute "inert" ""] $
-    forM_ sitePages $ \sp ->
-      a_ ([href_ (pagePath (spSlug sp))] <> [class_ "active" | spSlug sp == active]) $ do
-        icon (pageIcon (spSlug sp))
-        span_ (toHtml (spTitle sp))
+    forM_ (take 6 (cMenu c)) $ \(slug, title, ic) ->
+      a_ ([href_ (pagePath slug)] <> [class_ "active" | slug == active]) $ do
+        icon (menuIcon slug ic)
+        span_ (toHtml title)
 
-pageIcon :: Text -> Text
-pageIcon = \case
-  "home" -> "fa-solid fa-house"
-  "about" -> "fa-solid fa-users"
-  "services" -> "fa-solid fa-briefcase"
-  "branch" -> "fa-solid fa-location-dot"
-  "blog" -> "fa-regular fa-newspaper"
-  "contact" -> "fa-solid fa-envelope"
-  _ -> "fa-regular fa-file"
+-- | Ikon menu halaman; kosong = ikon bawaan.
+menuIcon :: Text -> Text -> Text
+menuIcon slug ic = if isBlank ic then defaultPageIcon slug else ic
 
 siteFooter :: Ctx -> Html ()
 siteFooter c =
-  footer_ [class_ "site-footer"] $
+  -- Bagian yang dimatikan tetap dirender (disembunyikan lewat kelas) agar bisa
+  -- dipratinjau langsung di page builder.
+  footer_ [class_ ("site-footer" <> T.concat [cls | (cls, True) <- hidden]), data_ "site-footer" ""] $
     div_ [class_ "wrap footer-inner"] $ do
-      div_ $ do
-        brandLink c "/" "brand"
-        p_ [class_ "muted"] (toHtml (setTagline (cSettings c)))
-      nav_ [class_ "footer-menu"] $
-        forM_ sitePages $ \sp -> a_ [href_ (pagePath (spSlug sp))] (toHtml (spTitle sp))
+      div_ [class_ "footer-about"] $ do
+        div_ [class_ "footer-brand"] (siteBrand c)
+        p_ [class_ "muted footer-text", data_ "footer-text" tagline] (toHtml (fromMaybe' tagline (navText "footer_text" nav)))
+      nav_ [class_ "footer-menu", makeAttribute "aria-label" "Menu footer"] $
+        forM_ (cMenu c) $ \(slug, title, _) -> a_ [href_ (pagePath slug)] (toHtml title)
       let social = setSocial (cSettings c)
       unless (null social) $
         div_ [class_ "footer-social"] $
           forM_ socialKinds $ \(k, lbl, ic) -> forM_ (lookup k social) $ \url ->
             a_ [href_ url, target_ "_blank", rel_ "noopener me", title_ lbl, makeAttribute "aria-label" lbl] (icon ic)
-      p_ [class_ "muted footer-copy"] (toHtml ("© " <> siteName c))
+      p_ [class_ "muted footer-copy", data_ "footer-copy" defCopy, data_ "year" (cYear c)] (toHtml (T.replace "{tahun}" (cYear c) (fromMaybe' defCopy (navText "footer_copy" nav))))
+  where
+    nav = setNav (cSettings c)
+    tagline = setTagline (cSettings c)
+    defCopy = "© " <> siteName c
+    fromMaybe' d = maybe d id
+    hidden =
+      [ (" ft-no-brand", not (navFlag "footer_brand" True nav))
+      , (" ft-no-menu", not (navFlag "footer_menu" True nav))
+      , (" ft-no-social", not (navFlag "footer_social" True nav))
+      , (" ft-center", navText "footer_layout" nav == Just "center")
+      , (" ft-float", navFlag "footer_float" False nav)
+      ]
+
+-- | Logo website + nama situs untuk header & footer situs publik. Logo website diatur
+-- di page builder (Tampilan situs → Logo website); kosong = logo dashboard. Gambar
+-- selalu dirender (tersembunyi bila kosong) agar bisa diganti langsung saat mengedit.
+siteBrand :: Ctx -> Html ()
+siteBrand c =
+  a_ [href_ "/", class_ ("brand" <> if T.null logo then "" else " has-logo"), data_ "site-brand" ""] $ do
+    img_ ([src_ (if T.null logo then "/asset/img/placeholder.svg" else logo), alt_ "", class_ "brand-logo"] <> [makeAttribute "hidden" "" | T.null logo])
+    span_ [class_ ("brand-name" <> if hideName then " sr-only" else "")] (toHtml (siteName c))
+  where
+    nav = setNav (cSettings c)
+    logo = siteLogo nav (setLogo (cSettings c))
+    hideName = not (T.null logo) && not (navFlag "brand_name" True nav)
 
 -- | Halaman artikel & arsip kategori: lebar baca sempit di bawah header situs.
 publicLayout :: Ctx -> [Category] -> Text -> Html () -> Html ()
@@ -362,15 +384,15 @@ navItems :: User -> [NavItem]
 navItems u =
   [leaf "dashboard" "Dashboard" "/admin" "fa-solid fa-gauge-high"]
     ++ [leaf "pages" "Halaman" "/admin/pages" "fa-regular fa-file-lines" | isStaff u]
-    ++ [leaf "branches" "Cabang" "/admin/branches" "fa-solid fa-store" | isStaff u]
-    ++ [leaf "seo" "SEO & Analitik" "/admin/seo" "fa-solid fa-chart-line" | isStaff u]
-    ++ [leaf "api" "API Gateway" "/admin/api" "fa-solid fa-plug" | isAdmin u]
     ++ [ NavItem "articles" "Artikel" "/admin/posts" "fa-regular fa-newspaper" $
            [ leaf "posts" "Semua Artikel" "/admin/posts" "fa-solid fa-list-ul"
            , leaf "new" "Tulis Baru" "/admin/posts/new" "fa-solid fa-pen-to-square"
            ]
              ++ [leaf "categories" "Kategori" "/admin/categories" "fa-solid fa-tags" | isStaff u]
        ]
+    ++ [leaf "branches" "Cabang" "/admin/branches" "fa-solid fa-store" | isStaff u]
+    ++ [leaf "seo" "SEO & Analitik" "/admin/seo" "fa-solid fa-chart-line" | isStaff u]
+    ++ [leaf "api" "API Gateway" "/admin/api" "fa-solid fa-plug" | isAdmin u]
     ++ [leaf "users" "Pengguna" "/admin/users" "fa-solid fa-users" | isAdmin u]
     ++ [leaf "settings" "Pengaturan" "/admin/settings" "fa-solid fa-gear" | isAdmin u]
     ++ [leaf "profile" "Profil" "/admin/profile" "fa-regular fa-circle-user"]

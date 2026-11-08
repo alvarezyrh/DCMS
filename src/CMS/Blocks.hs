@@ -19,6 +19,17 @@ module CMS.Blocks
   , lookupSitePage
   , pagePath
   , postsWanted
+  , safeIcon
+  , popupFreqs
+  , isSystemPage
+  , defaultPageIcon
+  , PageInput (..)
+  , PageTemplate (..)
+  , pageTemplates
+  , lookupTemplate
+  , withPageTitle
+  , pageSlugError
+  , pageColumns
   ) where
 
 import Control.Monad (forM)
@@ -33,6 +44,7 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Database.SQLite.Simple.FromRow
 
+import CMS.Types (PostSeo (..))
 import CMS.Util (readInt)
 
 -- Tipe ----------------------------------------------------------------------------
@@ -58,10 +70,39 @@ data Page = Page
   , pageTitle :: Text
   , pageBlocks :: [Block]
   , pageUpdated :: Text
+  , pagePublished :: Bool -- False = draf, hanya terlihat oleh Admin/Editor
+  , pageInMenu :: Bool -- tampil di menu atas, bawah, dan footer
+  , pageOrder :: Int -- urutan di menu
+  , pageMenuIcon :: Text -- ikon Font Awesome di menu
+  , pageSeo :: PostSeo -- judul/deskripsi/gambar SEO & noindex (kata kunci tidak dipakai)
+  , pageCreated :: Text
   }
 
+-- | Kolom untuk SELECT, urutannya sama dengan FromRow Page.
+pageColumns :: Text
+pageColumns =
+  "slug, title, blocks, updated_at, status, in_menu, menu_order, icon,\
+  \ seo_title, seo_desc, seo_image, seo_noindex, created_at"
+
 instance FromRow Page where
-  fromRow = Page <$> field <*> field <*> (decodeBlocks <$> field) <*> field
+  fromRow =
+    Page <$> field <*> field <*> (decodeBlocks <$> field) <*> field
+      <*> ((== ("published" :: Text)) <$> field) <*> field <*> field <*> field
+      <*> (mkSeo <$> field <*> field <*> field <*> field) <*> field
+    where
+      mkSeo t d i n = PostSeo t d "" i n
+
+-- | Isian form halaman (buat & pengaturan).
+data PageInput = PageInput
+  { pgiTitle :: Text
+  , pgiSlug :: Text
+  , pgiPublished :: Bool
+  , pgiInMenu :: Bool
+  , pgiIcon :: Text
+  , pgiSeo :: PostSeo
+  , pgiTemplate :: Text -- hanya saat membuat: kunci templat
+  , pgiCopyFrom :: Text -- hanya saat membuat: salin blok dari halaman ini (kosong = pakai templat)
+  }
 
 fieldOf :: Text -> Fields -> Text
 fieldOf = M.findWithDefault ""
@@ -152,6 +193,8 @@ blockSpecs =
       blk "logos" [("title", "Dipercaya oleh")] (replicate 5 (item [("src", placeholder), ("alt", "Logo klien")]))
   , BlockSpec "video" "Video YouTube" "fa-brands fa-youtube" ["eyebrow", "title", "text", "url"] [] $
       blk "video" [("eyebrow", "Video"), ("title", "Kenali kami dalam 2 menit"), ("text", ""), ("url", "")] []
+  , BlockSpec "popup" "Popup gambar" "fa-regular fa-window-restore" ["src", "alt", "btn", "href", "delay", "freq"] [] $
+      blk "popup" [("src", placeholder), ("alt", "Brosur promo"), ("btn", "Lihat detail"), ("href", "/contact"), ("delay", "2"), ("freq", "session")] []
   , BlockSpec "code" "Kode custom" "fa-solid fa-code" ["html", "css", "js"] [] $
       blk "code"
         [ ("html", "<div class=\"box\">\n  <h3>Halo!</h3>\n  <p>Ganti dengan HTML Anda.</p>\n  <button id=\"tombol\">Klik saya</button>\n</div>")
@@ -198,8 +241,20 @@ sanitizeBlocks bs
       | Just (def, allowed) <- lookup k cardVariants = if v `elem` allowed then v else def
       | k == "count" = maybe "3" (T.pack . show . max 1 . min 12) (readInt (T.strip v))
       | k == "interval" = maybe "5" (T.pack . show . max 0 . min 30) (readInt (T.strip v))
+      | k == "delay" = maybe "2" (T.pack . show . max 0 . min 60) (readInt (T.strip v))
+      | k == "freq" = if v `elem` map fst popupFreqs then v else "session"
       | k `elem` ["html", "css", "js"] = T.take 50000 v
       | otherwise = T.take 4000 v
+
+-- | Seberapa sering popup gambar tampil: (nilai, label). Harus sama dengan OPTIONS.freq
+-- di static/builder.js dan logika popup di static/app.js.
+popupFreqs :: [(Text, Text)]
+popupFreqs =
+  [ ("session", "Sekali per kunjungan")
+  , ("always", "Setiap halaman dibuka")
+  , ("day", "Sekali sehari")
+  , ("week", "Sekali seminggu")
+  ]
 
 -- | Pilihan tampilan kartu fitur: kunci -> (bawaan, nilai yang boleh). Harus sama
 -- dengan OPTIONS di static/builder.js dan kelas fs-/fc-/sh-/is- di style.css.
@@ -321,3 +376,85 @@ sitePages =
       , blk "contact" [("eyebrow", ""), ("title", "Mari bicara"), ("text", "Kirim email atau telepon kami pada jam kerja. Kami biasanya membalas dalam satu hari kerja."), ("address", "Jl. Sudirman No. 10, Jakarta Pusat"), ("phone", "(021) 555-0101"), ("email", "halo@contoh.id"), ("hours", "Senin–Jumat, 08.00–17.00"), ("btn", "Kirim email")] []
       ]
   ]
+
+-- Halaman buatan pengguna ------------------------------------------------------------------
+
+-- | Halaman bawaan (Home, About Us, …): tidak bisa dihapus dan alamatnya tetap.
+isSystemPage :: Text -> Bool
+isSystemPage s = any ((== s) . spSlug) sitePages
+
+-- | Ikon menu bawaan untuk halaman bawaan; halaman baru memakai ikon berkas.
+defaultPageIcon :: Text -> Text
+defaultPageIcon = \case
+  "home" -> "fa-solid fa-house"
+  "about" -> "fa-solid fa-users"
+  "services" -> "fa-solid fa-briefcase"
+  "branch" -> "fa-solid fa-location-dot"
+  "blog" -> "fa-regular fa-newspaper"
+  "contact" -> "fa-solid fa-envelope"
+  _ -> "fa-regular fa-file-lines"
+
+-- | Alamat yang dipakai rute lain atau berkas sistem, tidak boleh jadi slug halaman.
+reservedSlugs :: [Text]
+reservedSlugs =
+  [ "home", "blog", "admin", "api", "static", "asset", "post", "category", "login", "register", "logout"
+  , "sitemap.xml", "robots.txt", "favicon.ico", "new", "search", "feed", "rss", "uploads"
+  ]
+
+-- | Pesan kesalahan untuk slug halaman baru, atau Nothing bila sah.
+pageSlugError :: Text -> Maybe Text
+pageSlugError s
+  | T.null s = Just "Alamat halaman wajib diisi."
+  | T.length s > 60 = Just "Alamat halaman maksimal 60 karakter."
+  | not (T.all ok s) || "-" `T.isPrefixOf` s || "-" `T.isSuffixOf` s =
+      Just "Alamat hanya boleh huruf kecil, angka, dan tanda hubung (mis. promo-akhir-tahun)."
+  | s `elem` reservedSlugs = Just ("Alamat “/" <> s <> "” dipakai sistem. Pilih alamat lain.")
+  | otherwise = Nothing
+  where
+    ok ch = isAsciiLower ch || isDigit ch || ch == '-'
+
+-- | Templat awal halaman baru.
+data PageTemplate = PageTemplate
+  { ptKey :: Text
+  , ptLabel :: Text
+  , ptDesc :: Text
+  , ptIcon :: Text
+  , ptBlocks :: [Block]
+  }
+
+lookupTemplate :: Text -> Maybe PageTemplate
+lookupTemplate k = find ((== k) . ptKey) pageTemplates
+
+pageTemplates :: [PageTemplate]
+pageTemplates =
+  [ PageTemplate "blank" "Kosong" "Hanya judul halaman. Susun sendiri dari nol." "fa-regular fa-file" [headBlk]
+  , PageTemplate "basic" "Halaman standar" "Judul, teks, dan ajakan di bawah. Cocok untuk info atau kebijakan." "fa-solid fa-align-left" $
+      [headBlk] ++ spec "text" ++ spec "cta"
+  , PageTemplate "landing" "Landing page" "Hero, fitur, angka, testimoni, dan ajakan. Untuk promosi atau produk." "fa-solid fa-rocket" $
+      concatMap spec ["hero", "features", "stats", "testimonials", "cta"]
+  , PageTemplate "about" "Tentang" "Cerita, nilai, angka, dan tim." "fa-solid fa-users" $
+      systemDefaults "about" ++ spec "team"
+  , PageTemplate "services" "Layanan" "Daftar layanan, cara kerja, dan ajakan." "fa-solid fa-briefcase" (systemDefaults "services")
+  , PageTemplate "pricing" "Harga" "Paket harga, FAQ, dan ajakan." "fa-solid fa-tags" $
+      [headBlk] ++ concatMap spec ["pricing", "faq", "cta"]
+  , PageTemplate "faq" "FAQ" "Tanya-jawab lengkap dengan data terstruktur Google." "fa-solid fa-circle-question" $
+      [headBlk] ++ concatMap spec ["faq", "cta"]
+  , PageTemplate "gallery" "Galeri & video" "Foto kegiatan, logo klien, dan video." "fa-regular fa-images" $
+      [headBlk] ++ concatMap spec ["gallery", "video", "logos"]
+  , PageTemplate "contact" "Kontak" "Info kontak dan daftar cabang." "fa-solid fa-envelope" $
+      systemDefaults "contact" ++ spec "branches"
+  ]
+  where
+    headBlk = blk "head" [("eyebrow", ""), ("title", "Judul halaman"), ("text", "Keterangan singkat halaman ini.")] []
+    spec t = maybe [] (pure . spDefault) (lookupSpec t)
+    systemDefaults s = maybe [headBlk] spDefaults (lookupSitePage s)
+
+-- | Pakai judul halaman di blok judul/hero pertama templat, supaya halaman baru
+-- langsung berjudul benar.
+withPageTitle :: Text -> [Block] -> [Block]
+withPageTitle title = go
+  where
+    go [] = []
+    go (b : bs)
+      | bType b `elem` ["head", "hero"] = b {bFields = M.insert "title" title (bFields b)} : bs
+      | otherwise = b : go bs

@@ -13,6 +13,12 @@ database **SQLite**, HTML dari **Lucid**, password **bcrypt**, dan konten **Mark
 - **Page builder**: edit halaman langsung di tempat, plus panel **Tampilan situs** untuk mengatur ukuran website
   (lebar konten & jarak tepi) serta warna, jarak, dan bentuk navigasi atas & bawah (berlaku di seluruh situs,
   tersimpan bersama tombol Simpan).
+- **Halaman baru** (menu Halaman, Admin & Editor): buat halaman sendiri di `/alamat-halaman` dari 9 templat
+  (kosong, standar, landing page, tentang, layanan, harga, FAQ, galeri & video, kontak) atau salin isi halaman
+  lain, lalu langsung diedit di page builder. Tiap halaman punya status **Terbit/Draf** (draf hanya terlihat staf,
+  otomatis noindex), pilihan **tampil di menu** (atas, bawah, footer) dengan ikon menu, urutan menu (naik/turun),
+  SEO sendiri (judul, deskripsi, gambar pratinjau, noindex + pratinjau Google), duplikat, ubah alamat, dan hapus.
+  Halaman bawaan tidak bisa dihapus dan alamatnya tetap. Halaman terbit otomatis masuk `sitemap.xml`.
 - **Kartu fitur**: 13 gaya (kartu, garis tepi, melayang, ikon di samping, tengah, minimalis, aksen atas/samping,
   bernomor, ikon penuh, gradasi, kaca, gelap), 2–4 kolom, bentuk sudut, dan bentuk ikon lewat chip "Gaya kartu".
 - **Blok siap pakai**: testimoni (rating bintang), FAQ (dengan data terstruktur Google), paket harga (paket
@@ -115,6 +121,8 @@ static/style.css, app.js  tampilan & editor
 | GET/POST | `/admin/posts`, `/admin/posts/new`, `/admin/posts/:id/edit`, `/admin/posts/:id`, `/admin/posts/:id/delete` | login (User: milik sendiri) |
 | POST | `/admin/posts/:id/publish` | admin, editor |
 | GET/POST | `/admin/categories…` | admin, editor |
+| GET | `/:slug` (halaman builder) | publik; draf hanya admin, editor |
+| GET/POST | `/admin/pages`, `/admin/pages/new`, `/admin/pages/:slug/settings`; POST `/admin/pages/:slug/{duplicate,toggle,move,delete}` | admin, editor |
 | GET/POST | `/admin/users…`, `/admin/settings` | admin |
 | GET/POST | `/admin/profile`, `/admin/profile/password` | login |
 

@@ -7,7 +7,7 @@ import Data.Char (isAsciiLower, isAsciiUpper, isDigit)
 import qualified Data.Aeson.Key as Key
 import Data.Time
 import qualified Data.ByteString.Lazy as BL
-import Data.Maybe (fromMaybe, isNothing)
+import Data.Maybe (fromMaybe, isJust, isNothing)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -32,6 +32,7 @@ import CMS.Types
 import CMS.Upload (removeAsset, saveImage)
 import CMS.Util
 import CMS.Views.Admin
+import CMS.Views.PageAdmin (PageFilter (..), pageFormPage, pagesPage)
 import CMS.Web
 
 type Handler = Ctx -> User -> IO Response
@@ -52,7 +53,15 @@ adminRoute path c u = case (cMethod c, path) of
   ("POST", ["preview"]) -> preview c
   -- Halaman situs / page builder (Admin & Editor)
   ("GET", ["pages"]) -> staff (pagesIndex c u)
+  ("GET", ["pages", "new"]) -> staff (pageNew c u)
+  ("POST", ["pages"]) -> staff (pageCreate c u)
   ("POST", ["pages", s]) -> staff (pageSave c s)
+  ("GET", ["pages", s, "settings"]) -> staff (withPage s (\pg -> ok (pageFormPage c u (Just pg) [] (pageToInput pg) [])))
+  ("POST", ["pages", s, "settings"]) -> staff (withPage s (pageSettingsSave c u))
+  ("POST", ["pages", s, "duplicate"]) -> staff (withPage s (pageDuplicate c))
+  ("POST", ["pages", s, "toggle"]) -> staff (withPage s (pageToggle c))
+  ("POST", ["pages", s, "move"]) -> staff (withPage s (pageMove c))
+  ("POST", ["pages", s, "delete"]) -> staff (withPage s (pageDelete c))
   -- Kategori (Admin & Editor)
   ("GET", ["categories"]) -> staff (categoriesIndex c u [] ("", "", ""))
   ("POST", ["categories"]) -> staff (categoryCreate c u)
@@ -109,6 +118,7 @@ adminRoute path c u = case (cMethod c, path) of
     withCategory i k = db (`findCategory` i) >>= maybe (notFound c) (k c u)
     withUser i k = db (`findUserById` i) >>= maybe (notFound c) (k c u)
     withBranch i k = db (`findBranch` i) >>= maybe (notFound c) k
+    withPage s k = db (`findPage` s) >>= maybe (notFound c) k
 
 
 -- Dashboard ---------------------------------------------------------------------
@@ -457,14 +467,135 @@ settingsUpdate c u = do
 -- Halaman situs (page builder) -----------------------------------------------------------
 
 pagesIndex :: Handler
-pagesIndex c u = withDb (cEnv c) listPages >>= ok . pagesPage c u
+pagesIndex c u = do
+  pages <- withDb (cEnv c) listPages
+  let st = let v = paramT c "status" in if v `elem` ["published", "draft", "hidden"] then v else ""
+      flt = PageFilter (paramT c "q") st
+      q = T.toLower (pfQuery flt)
+      matchQ p = T.null q || q `T.isInfixOf` T.toLower (pageTitle p) || q `T.isInfixOf` pageSlug p
+      matchS p = case st of
+        "published" -> pagePublished p
+        "draft" -> not (pagePublished p)
+        "hidden" -> not (pageInMenu p)
+        _ -> True
+  ok (pagesPage c u flt pages (filter (\p -> matchQ p && matchS p) pages))
+
+-- | Isian form halaman (buat & pengaturan).
+readPageInput :: Ctx -> PageInput
+readPageInput c =
+  PageInput
+    { pgiTitle = T.take 80 (T.unwords (T.words (paramT c "title")))
+    , pgiSlug = T.toLower (paramT c "slug")
+    , pgiPublished = paramT c "status" /= "draft"
+    , pgiInMenu = paramBool c "in_menu"
+    , pgiIcon = safeIcon (paramT c "icon")
+    , pgiSeo =
+        PostSeo
+          { seoTitle = T.take 120 (paramT c "seo_title")
+          , seoDesc = T.take 320 (T.unwords (T.words (paramT c "seo_desc")))
+          , seoKeyword = ""
+          , seoImage = safeUrl (paramT c "seo_image")
+          , seoNoindex = paramBool c "seo_noindex"
+          }
+    , pgiTemplate = paramT c "template"
+    , pgiCopyFrom = paramT c "copy_from"
+    }
+
+pageToInput :: Page -> PageInput
+pageToInput p = PageInput (pageTitle p) (pageSlug p) (pagePublished p) (pageInMenu p) (pageMenuIcon p) (pageSeo p) "" ""
+
+pageNew :: Handler
+pageNew c u = do
+  pages <- withDb (cEnv c) listPages
+  ok (pageFormPage c u Nothing pages (PageInput "" "" True True "" emptySeo "basic" "") [])
+
+-- | Buat halaman dari templat atau salinan halaman lain, lalu langsung buka editornya.
+pageCreate :: Handler
+pageCreate c u = do
+  pages <- withDb (cEnv c) listPages
+  let inp0 = readPageInput c
+      auto = T.null (pgiSlug inp0)
+      taken s = s `elem` map pageSlug pages
+      base = T.dropWhileEnd (== '-') (T.take 50 (slugify (pgiTitle inp0)))
+  slug <-
+    if auto
+      then uniqueSlug (\s -> pure (taken s || isJust (pageSlugError s))) base
+      else pure (pgiSlug inp0)
+  let inp = inp0 {pgiSlug = slug}
+      source = if T.null (pgiCopyFrom inp) then Nothing else Just [p | p <- pages, pageSlug p == pgiCopyFrom inp]
+      errs =
+        concat
+          [ ["Judul halaman wajib diisi." | isBlank (pgiTitle inp)]
+          , maybe [] pure (if auto then Nothing else pageSlugError slug)
+          , ["Alamat “/" <> slug <> "” sudah dipakai halaman lain." | not auto, taken slug]
+          , ["Templat tidak dikenal." | isNothing source, isNothing (lookupTemplate (pgiTemplate inp))]
+          , ["Halaman yang ingin disalin tidak ditemukan." | Just [] <- [source]]
+          ]
+      blocks = case (source, lookupTemplate (pgiTemplate inp)) of
+        (Just (p : _), _) -> pageBlocks p
+        (_, Just t) -> withPageTitle (pgiTitle inp) (ptBlocks t)
+        _ -> []
+  if not (null errs)
+    then pure $ htmlResp status422 (pageFormPage c u Nothing pages inp errs)
+    else do
+      withDb (cEnv c) $ \db -> createPage db inp blocks
+      redirectFlash (pagePath slug <> "?edit=1") "success" ("Halaman “" <> pgiTitle inp <> "” dibuat. Ubah isinya langsung di sini, lalu klik Simpan.")
+
+pageSettingsSave :: Ctx -> User -> Page -> IO Response
+pageSettingsSave c u pg = do
+  let old = pageSlug pg
+      sys = isSystemPage old
+      inp0 = readPageInput c
+      inp = inp0 {pgiSlug = if sys then old else pgiSlug inp0, pgiPublished = pgiPublished inp0 || old == "home"}
+      new = pgiSlug inp
+  taken <- if new /= old then withDb (cEnv c) (`pageSlugTaken` new) else pure False
+  let errs =
+        concat
+          [ ["Judul halaman wajib diisi." | isBlank (pgiTitle inp)]
+          , if sys then [] else maybe [] pure (pageSlugError new)
+          , ["Alamat “/" <> new <> "” sudah dipakai halaman lain." | taken]
+          ]
+  if not (null errs)
+    then pure $ htmlResp status422 (pageFormPage c u (Just pg) [] inp errs)
+    else do
+      withDb (cEnv c) $ \db -> updatePageMeta db old inp
+      redirectFlash "/admin/pages" "success" ("Pengaturan halaman “" <> pgiTitle inp <> "” disimpan.")
+
+-- | Salin halaman (isi, ikon, SEO) sebagai draf yang belum tampil di menu.
+pageDuplicate :: Ctx -> Page -> IO Response
+pageDuplicate c pg = do
+  slug <- withDb (cEnv c) $ \db -> do
+    s <- uniqueSlug (pageSlugTaken db) (T.dropWhileEnd (== '-') (T.take 45 (pageSlug pg)) <> "-salinan")
+    createPage db (pageToInput pg) {pgiSlug = s, pgiTitle = T.take 80 (pageTitle pg <> " (salinan)"), pgiPublished = False, pgiInMenu = False} (pageBlocks pg)
+    pure s
+  redirectFlash ("/admin/pages/" <> slug <> "/settings") "success" "Salinan dibuat sebagai draf. Atur judul & alamatnya, lalu terbitkan."
+
+pageToggle :: Ctx -> Page -> IO Response
+pageToggle c pg
+  | pageSlug pg == "home" = redirectFlash "/admin/pages" "error" "Beranda selalu terbit."
+  | otherwise = do
+      let on = not (pagePublished pg)
+      withDb (cEnv c) $ \db -> setPagePublished db (pageSlug pg) on
+      redirectFlash "/admin/pages" "success" ("“" <> pageTitle pg <> "” " <> if on then "diterbitkan." else "dijadikan draf.")
+
+pageMove :: Ctx -> Page -> IO Response
+pageMove c pg = do
+  withDb (cEnv c) $ \db -> movePage db (pageSlug pg) (if paramT c "dir" == "up" then -1 else 1)
+  pure (redirectTo "/admin/pages")
+
+pageDelete :: Ctx -> Page -> IO Response
+pageDelete c pg
+  | isSystemPage (pageSlug pg) = redirectFlash "/admin/pages" "error" "Halaman bawaan tidak bisa dihapus. Sembunyikan dari menu atau jadikan draf."
+  | otherwise = do
+      withDb (cEnv c) $ \db -> deletePage db (pageSlug pg)
+      redirectFlash "/admin/pages" "success" ("Halaman “" <> pageTitle pg <> "” dihapus.")
 
 -- | Simpan susunan blok dari editor di halaman, beserta pengaturan navigasi bila
 -- dikirim (isian "nav"). Dipanggil lewat fetch(); balas JSON.
 pageSave :: Ctx -> Text -> IO Response
-pageSave c slug = case lookupSitePage slug of
-  Nothing -> notFound c
-  Just _ -> case (eitherDecodeStrict (TE.encodeUtf8 (paramRaw c "blocks")), navParam) of
+pageSave c slug = withDb (cEnv c) (`pageSlugTaken` slug) >>= \case
+  False -> notFound c
+  True -> case (eitherDecodeStrict (TE.encodeUtf8 (paramRaw c "blocks")), navParam) of
     (Left _, _) -> pure (textResp status400 "Data halaman tidak valid.")
     (_, Left _) -> pure (textResp status400 "Data navigasi tidak valid.")
     (Right raw, Right mNav) -> case sanitizeBlocks raw of

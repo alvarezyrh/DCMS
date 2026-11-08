@@ -317,6 +317,8 @@ data Ctx = Ctx
   , cCsrf :: Text
   , cFlash :: Maybe Flash
   , cSettings :: Settings
+  , cMenu :: [(Text, Text, Text)] -- menu situs: (slug, judul, ikon) halaman terbit
+  , cYear :: Text -- tahun berjalan (waktu lokal server), untuk {tahun} di footer
   }
 
 -- Izin ----------------------------------------------------------------------

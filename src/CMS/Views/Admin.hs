@@ -9,7 +9,6 @@ import Data.Time (Day, DayOfWeek (..), addGregorianMonthsClip, dayOfWeek, fromGr
 import Lucid
 import Lucid.Base (makeAttribute)
 
-import CMS.Blocks (Page (..), pagePath)
 import CMS.Seo
 import CMS.Views.SeoAdmin (SeoWidget, checkItem, scoreRing, seoWidgetCard)
 import CMS.Web (siteOrigin)
@@ -528,32 +527,6 @@ settingsPage c u Settings {..} errs = adminLayout c u "settings" "Pengaturan Sit
       forM_ socialKinds $ \(k, lbl, _) ->
         inputField "url" lbl ("social_" <> k) (fromMaybe "" (lookup k setSocial)) [placeholder_ "https://…"]
       button_ [type_ "submit", class_ "btn"] "Simpan pengaturan"
-
--- Halaman situs ---------------------------------------------------------------------
-
-pagesPage :: Ctx -> User -> [Page] -> Html ()
-pagesPage c u pages = adminLayout c u "pages" "Halaman" $ do
-  div_ [class_ "card pages-intro"] $ do
-    h2_ "Halaman situs"
-    p_ [class_ "muted"] $ do
-      "Pilih "
-      strong_ "Edit di halaman"
-      " untuk mengubah teks langsung di halaman, menyeret blok untuk menyusun ulang, dan menambah blok baru dari panel kiri."
-  div_ [class_ "card table-wrap"] $ table_ [class_ "table"] $ do
-    thead_ $ tr_ $ do
-      th_ "Halaman"
-      th_ "Alamat"
-      th_ "Blok"
-      th_ "Diperbarui"
-      th_ [class_ "right"] "Aksi"
-    tbody_ $ forM_ pages $ \p -> tr_ $ do
-      td_ (strong_ (toHtml (pageTitle p)))
-      td_ [class_ "mono"] (toHtml (pagePath (pageSlug p)))
-      td_ (toHtml (show (length (pageBlocks p))))
-      td_ (toHtml (fmtDate (pageUpdated p)))
-      td_ [class_ "right actions"] $ do
-        a_ [href_ (pagePath (pageSlug p)), target_ "_blank", rel_ "noopener", class_ "btn btn-ghost btn-sm"] (icon "fa-solid fa-eye" >> "Lihat")
-        a_ [href_ (pagePath (pageSlug p) <> "?edit=1"), target_ "_blank", rel_ "noopener", class_ "btn btn-sm"] (icon "fa-solid fa-pen" >> "Edit di halaman")
 
 -- SEO artikel ---------------------------------------------------------------------------
 

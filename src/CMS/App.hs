@@ -6,6 +6,7 @@ import Control.Monad (when)
 import qualified Data.ByteString as B
 import Data.Maybe (isJust)
 import Data.Text (Text)
+import Data.Time (getZonedTime, localDay, toGregorian, zonedTimeToLocalTime)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Database.SQLite.Simple (Connection)
@@ -28,7 +29,7 @@ import Web.Cookie (parseCookies)
 
 import CMS.Analytics (classifyReferer, isBot, trackable)
 import CMS.Auth
-import CMS.Blocks (lookupSitePage)
+import CMS.Blocks (pageSlugError)
 import CMS.DB
 import qualified CMS.Handlers.Admin as Admin
 import qualified CMS.Handlers.Api as Api
@@ -96,11 +97,13 @@ handle env req = do
           , False
           )
         Left (_ :: SomeException) -> ([], [], True)
-  (mUser, settings) <- withDb env $ \db ->
-    (,) <$> maybe (pure Nothing) (sessionUser db . hashToken) sessTok <*> getSettings db
+  (mUser, settings, menu) <- withDb env $ \db ->
+    (,,) <$> maybe (pure Nothing) (sessionUser db . hashToken) sessTok <*> getSettings db <*> listMenu db
   (csrf, newCsrf) <- case mfilter' (\t -> T.length t == 64) (cookieText "csrf") of
     Just t -> pure (t, False)
     Nothing -> (\t -> (t, True)) <$> randomToken
+  now <- getZonedTime
+  let (year, _, _) = toGregorian (localDay (zonedTimeToLocalTime now))
   let flash = lookup "flash" cookies >>= decodeFlash
       ctx =
         Ctx
@@ -116,6 +119,8 @@ handle env req = do
           , cCsrf = csrf
           , cFlash = flash
           , cSettings = settings
+          , cMenu = menu
+          , cYear = T.pack (show year)
           }
   result <-
     if tooBig
@@ -170,12 +175,15 @@ route c = case (cMethod c, cPath c) of
   ("GET", ["register"]) -> Public.registerForm c
   ("POST", ["register"]) -> Public.register c
   ("GET", ["blog"]) -> Public.blogPage c
-  ("GET", [s]) | Just _ <- lookupSitePage s, s `notElem` ["home", "blog"] -> Public.sitePage c s
+  ("GET", ["home"]) -> pure (redirectTo "/")
   (_, "admin" : rest) -> case cUser c of
     Just u -> Admin.adminRoute rest c u
     Nothing ->
       let next = TE.decodeUtf8Lenient (rawPathInfo (cReq c) <> rawQueryString (cReq c))
        in pure (redirectTo (urlWith "/login" [("next", next)]))
+  -- Halaman builder (bawaan & buatan sendiri). Harus setelah rute lain, dan alamat
+  -- sistem (admin, api, …) tidak pernah dianggap halaman.
+  ("GET", [s]) | Nothing <- pageSlugError s -> Public.sitePage c s
   _ -> Public.notFound c
 
 -- | Catat kunjungan halaman publik (tanpa cookie, tanpa data pribadi). Pengguna yang
