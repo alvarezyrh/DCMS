@@ -37,6 +37,7 @@ import qualified CMS.Handlers.Public as Public
 import CMS.Static (serveStatic)
 import CMS.Types
 import CMS.Upload (serveAsset)
+import CMS.Util (tshow)
 import CMS.Views.Layout (messagePage)
 import CMS.Web
 
@@ -117,7 +118,7 @@ handle env req = do
           , cSettings = settings
           , cMenu = menu
           , cOffer = offer
-          , cYear = T.pack (show year)
+          , cYear = tshow year
           }
   result <-
     if tooBig

@@ -4,8 +4,8 @@ module CMS.DB where
 import Control.Concurrent.MVar
 import Control.Monad (forM_, void, when)
 import Data.List (nubBy)
-import Data.Maybe (catMaybes, fromMaybe, listToMaybe)
 import qualified Data.Map.Strict as M
+import Data.Maybe (catMaybes, fromMaybe, listToMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Database.SQLite.Simple
@@ -15,6 +15,7 @@ import CMS.Blocks
 import CMS.BranchSeed (seedBranches)
 import CMS.NavStyle (decodeNav, encodeNav)
 import CMS.Types
+import CMS.Util (tshow)
 
 -- | Koneksi dibungkus MVar supaya aman dipakai banyak thread Warp.
 withDb :: Env -> (Connection -> IO a) -> IO a
@@ -234,7 +235,7 @@ createSession c tokHash uid days =
   execute
     c
     "INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, datetime('now', ?))"
-    (tokHash, uid, "+" <> T.pack (show days) <> " days")
+    (tokHash, uid, sqlDays days)
 
 sessionUser :: Connection -> Text -> IO (Maybe User)
 sessionUser c tokHash =
@@ -470,7 +471,7 @@ saveSettings c Settings {..} = withTransaction c $
     ( [ ("site_name", setSiteName)
     , ("tagline", setTagline)
     , ("allow_register", if setAllowRegister then "1" else "0")
-    , ("per_page", T.pack (show setPerPage))
+    , ("per_page", tshow setPerPage)
     , ("description", setDescription)
     , ("whatsapp", setWhatsapp)
     , ("wa_message", setWaMessage)
@@ -514,6 +515,10 @@ seedPages c = do
           blocks' = if any ((== "branchdir") . bType) blocks then blocks else blocks ++ [Block "branchdir" (M.fromList [("eyebrow", ""), ("title", "Lokasi kami"), ("text", "")]) []]
       savePageBlocks c "branch" blocks'
     execute_ c "INSERT OR REPLACE INTO settings (key, value) VALUES ('branch_page_dir', '1')"
+
+-- | Selisih hari untuk fungsi tanggal SQLite, mis. 7 -> "+7 days", -30 -> "-30 days".
+sqlDays :: Int -> Text
+sqlDays n = (if n >= 0 then "+" else "") <> tshow n <> " days"
 
 pageSelect :: Query
 pageSelect = Query ("SELECT " <> pageColumns <> " FROM pages")
@@ -632,7 +637,7 @@ viewsByDay c days =
     c
     "SELECT day, source, SUM(views) FROM page_views\
     \ WHERE day > date('now', 'localtime', ?) GROUP BY day, source ORDER BY day"
-    (Only ("-" <> T.pack (show days) <> " days"))
+    (Only (sqlDays (-days)))
 
 -- | Total per sumber dalam n hari terakhir.
 viewsBySource :: Connection -> Int -> IO [(Text, Int)]
@@ -641,7 +646,7 @@ viewsBySource c days =
     c
     "SELECT source, SUM(views) FROM page_views WHERE day > date('now', 'localtime', ?)\
     \ GROUP BY source ORDER BY 2 DESC"
-    (Only ("-" <> T.pack (show days) <> " days"))
+    (Only (sqlDays (-days)))
 
 -- | Mesin pencari pengirim kunjungan dalam n hari terakhir.
 viewsByEngine :: Connection -> Int -> IO [(Text, Int)]
@@ -650,7 +655,7 @@ viewsByEngine c days =
     c
     "SELECT engine, SUM(views) FROM page_views WHERE source = 'search' AND day > date('now', 'localtime', ?)\
     \ GROUP BY engine ORDER BY 2 DESC"
-    (Only ("-" <> T.pack (show days) <> " days"))
+    (Only (sqlDays (-days)))
 
 -- | Halaman terpopuler: (path, total kunjungan, dari pencarian).
 topPages :: Connection -> Int -> Int -> IO [(Text, Int, Int)]
@@ -659,7 +664,7 @@ topPages c days n =
     c
     "SELECT path, SUM(views), SUM(CASE WHEN source = 'search' THEN views ELSE 0 END) FROM page_views\
     \ WHERE day > date('now', 'localtime', ?) GROUP BY path ORDER BY 2 DESC LIMIT ?"
-    ("-" <> T.pack (show days) <> " days", n)
+    (sqlDays (-days), n)
 
 -- | Semua artikel untuk audit SEO (terbaru dulu).
 allPostsForSeo :: Connection -> IO [Post]
@@ -764,13 +769,13 @@ apiUsageByApi c days =
     c
     "SELECT api, SUM(hits), SUM(CASE WHEN status >= 400 THEN hits ELSE 0 END) FROM api_usage\
     \ WHERE day > date('now','localtime', ?) GROUP BY api ORDER BY 2 DESC"
-    (Only ("-" <> T.pack (show days) <> " days"))
+    (Only (sqlDays (-days)))
 
 -- | Pemakaian n hari terakhir per key: (key_id, total).
 apiUsageByKey :: Connection -> Int -> IO [(Int, Int)]
 apiUsageByKey c days =
   query c "SELECT key_id, SUM(hits) FROM api_usage WHERE day > date('now','localtime', ?) GROUP BY key_id"
-    (Only ("-" <> T.pack (show days) <> " days"))
+    (Only (sqlDays (-days)))
 
 -- | Pemakaian per hari (semua API): (tanggal, berhasil, gagal).
 getApiConfig :: Connection -> IO Text

@@ -162,8 +162,11 @@ renderBlock edit pd b = case bType b of
           btnLink fs "btn btn-lg btn-ghost" "btn2" "href2"
       -- Di mode edit selalu ada (tersembunyi bila kosong) agar bisa diganti langsung.
       when (edit || not (T.null heroSrc)) $
-        div_ [class_ "hero-media"] $
+        div_ [class_ "hero-media"] $ do
           img_ ([class_ "hero-img", src_ (if T.null heroSrc then "/asset/img/placeholder.svg" else heroSrc), alt_ (fieldOf "alt" fs)] <> [makeAttribute "fetchpriority" "high" | not edit])
+          -- Label melayang di samping foto; hanya tampil pada posisi "Foto potong".
+          txt fs span_ [class_ "hero-badge hero-badge-1"] "badge1" "Label foto"
+          txt fs span_ [class_ "hero-badge hero-badge-2"] "badge2" "Label foto"
   "head" -> section $ do
     txt fs p_ [class_ "eyebrow"] "eyebrow" "Label kecil"
     title fs h1_ "Judul halaman"
@@ -185,8 +188,15 @@ renderBlock edit pd b = case bType b of
       ico it
       txt it h3_ [] "title" "Judul kartu"
       txt it p_ [class_ "ml"] "text" "Keterangan kartu"
-  "split" -> section $ div_ [class_ "split"] $ do
-    div_ [class_ "split-media"] (pic fs "split-img")
+  "split" -> section $ div_ [class_ ("split" <> if cutout then " split-cutout" else "")] $ do
+    div_ [class_ "split-media"] $ do
+      -- Foto potong: bentuk organik berputar pelan + jejak kaki melayang (dekorasi saja).
+      when cutout $ do
+        span_ [class_ "split-blob", makeAttribute "aria-hidden" "true"] ""
+        forM_ [1 :: Int .. 3] $ \n -> i_ [class_ ("fa-solid fa-paw split-paw split-paw-" <> tshow n), makeAttribute "aria-hidden" "true"] ""
+      if edit
+        then img_ [class_ "split-img", src_ (if T.null (fieldOf "src" fs) then "/asset/img/placeholder.svg" else fieldOf "src" fs), alt_ (fieldOf "alt" fs), data_ "fa" "src:src,alt:alt,photo:data-photo", data_ "photo" (if cutout then "cutout" else "frame")]
+        else pic fs "split-img"
     div_ [class_ "split-body"] $ do
       txt fs p_ [class_ "eyebrow"] "eyebrow" "Label kecil"
       txt fs h2_ [] "title" "Judul bagian"
@@ -355,6 +365,16 @@ renderBlock edit pd b = case bType b of
             span_ [class_ "pt-glider", makeAttribute "aria-hidden" "true"] ""
           div_ [class_ "pt-panels"] $
             forM_ (bItems b) $ \it -> div_ [class_ "pb-card pt-panel", role_ "tabpanel"] (priceTab it)
+  "skills" -> section $ do
+    sectionHead fs
+    itemsOf "pb-grid skill-grid" "pb-card skill" $ \it -> do
+      let lvl = let v = fieldOf "level" it in if T.null v then "0" else v
+      div_ [class_ "skill-head"] $ do
+        ico it
+        txt it strong_ [class_ "skill-name"] "title" "Nama keahlian"
+        txt it span_ [class_ "skill-level"] "level" "0–100"
+      div_ [class_ "skill-bar", role_ "progressbar", makeAttribute "aria-valuemin" "0", makeAttribute "aria-valuemax" "100", makeAttribute "aria-valuenow" lvl] $
+        span_ [class_ "skill-fill", style_ ("--lvl:" <> lvl)] ""
   "team" -> section $ do
     sectionHead fs
     itemsOf "pb-grid team-grid" "team-card" $ \it -> do
@@ -410,7 +430,8 @@ renderBlock edit pd b = case bType b of
     freqT = let v = fieldOf "freq" fs in if v `elem` map fst popupFreqs then v else "session"
     freqLabel = fromMaybe "" (lookup freqT popupFreqs)
     heroSrc = fieldOf "src" fs
-    heroLayout = let v = fieldOf "layout" fs in if v `elem` ["left", "bg"] then v else "right"
+    cutout = fieldOf "photo" fs == "cutout"
+    heroLayout = let v = fieldOf "layout" fs in if v `elem` heroLayouts then v else "right"
     heroCls = "hero-" <> heroLayout <> if T.null heroSrc then "" else " has-img"
 
     section :: Html () -> Html ()

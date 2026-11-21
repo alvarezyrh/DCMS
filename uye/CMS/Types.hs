@@ -2,21 +2,22 @@
 module CMS.Types where
 
 import Control.Concurrent.MVar (MVar)
+import qualified Data.ByteString.Lazy as BL
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
-import CMS.RateLimit (Limiter)
-import CMS.Static (StaticFiles)
 import qualified Data.Text as T
+import Data.Time.Clock (UTCTime)
 import Database.SQLite.Simple (Connection)
 import Database.SQLite.Simple.FromField
 import Database.SQLite.Simple.FromRow
 import Database.SQLite.Simple.Ok (Ok (..))
 import Database.SQLite.Simple.ToField
 import Network.HTTP.Types (Method)
-import Data.Time.Clock (UTCTime)
 import Network.Wai (Request)
 import Network.Wai.Parse (FileInfo)
-import qualified Data.ByteString.Lazy as BL
+
+import CMS.RateLimit (Limiter)
+import CMS.Static (StaticFiles)
 
 -- Peran -----------------------------------------------------------------
 

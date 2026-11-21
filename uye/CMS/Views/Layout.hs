@@ -18,7 +18,7 @@ import CMS.NavStyle (fontLink, lightboxOn, navBottomOn, navCss, navFlag, navText
 import CMS.Seo (firstImage)
 import CMS.Static (staticUrl)
 import CMS.Types
-import CMS.Util (isBlank)
+import CMS.Util (isBlank, tshow)
 import CMS.Web (paramT, siteOrigin, urlWith)
 
 -- | Gambar sampul artikel: gambar SEO, atau gambar pertama di isi artikel.
@@ -95,7 +95,7 @@ pagination base kvs page pages =
         then a_ [href_ (link (page + 1)), class_ "btn btn-ghost btn-sm"] "Berikutnya ›"
         else span_ [] mempty
   where
-    link n = urlWith base (kvs ++ [("page", T.pack (show n))])
+    link n = urlWith base (kvs ++ [("page", tshow n)])
 
 emptyState :: Text -> Html ()
 emptyState msg = div_ [class_ "empty"] (p_ (toHtml msg))
@@ -115,7 +115,7 @@ inputField ty label name val attrs =
 textareaField :: Text -> Text -> Text -> Int -> [Attribute] -> Html ()
 textareaField label name val rows attrs =
   field label name $
-    textarea_ ([id_ name, name_ name, rows_ (T.pack (show rows))] <> attrs) (toHtml val)
+    textarea_ ([id_ name, name_ name, rows_ (tshow rows)] <> attrs) (toHtml val)
 
 selectField :: Text -> Text -> [(Text, Text)] -> Text -> Html ()
 selectField label name opts cur =
@@ -165,7 +165,9 @@ siteLayoutMeta c active meta bodyAttrs content = doctypehtml_ $ do
     content
     siteFooter c
     floatingButtons c
-    unless (T.null (setWhatsapp (cSettings c))) (offerDialog c)
+    unless (T.null (setWhatsapp (cSettings c))) $ do
+      waDialog c (offerForm c)
+      waDialog c supportForm
     -- Saat mengedit selalu dirender agar bisa dipratinjau walau sedang dimatikan.
     when (navBottomOn (setNav (cSettings c)) || editing) (tabBar c active)
   where
@@ -251,7 +253,7 @@ floatingButtons c = do
         button_ [type_ "button", class_ "fab totop", data_ "totop" "", title_ "Kembali ke atas", makeAttribute "aria-label" "Kembali ke atas", makeAttribute "hidden" ""] $
           icon "fa-solid fa-arrow-up"
       unless (T.null wa) $
-        a_ [href_ (waUrl s), target_ "_blank", rel_ "noopener", class_ "fab wa-fab", title_ "Chat WhatsApp", makeAttribute "aria-label" "Chat lewat WhatsApp"] $
+        a_ [href_ (waUrl s), target_ "_blank", rel_ "noopener", class_ "fab wa-fab", data_ "wa-open" "konsultasi", title_ "Layanan pelanggan", makeAttribute "aria-label" "Layanan pelanggan lewat WhatsApp"] $
           icon "fa-brands fa-whatsapp"
 
 -- | Tautan wa.me dengan pesan awal dari Pengaturan (bila diisi).
@@ -260,36 +262,67 @@ waUrl s =
   "https://wa.me/" <> setWhatsapp s
     <> if isBlank (setWaMessage s) then "" else "?text=" <> TE.decodeUtf8 (urlEncode True (TE.encodeUtf8 (setWaMessage s)))
 
--- | Popup "Hubungi": formulir penawaran proyek yang dikirim sebagai pesan WhatsApp
--- (static/app.js [data-offer]). Tanpa JavaScript, formulir tetap membuka wa.me.
-offerDialog :: Ctx -> Html ()
-offerDialog c =
-  term "dialog" [class_ "offer", id_ "hubungi", makeAttribute "aria-labelledby" "offer-title"] $
-    form_ [class_ "offer-form", method_ "get", action_ ("https://wa.me/" <> setWhatsapp s), target_ "_blank", data_ "offer" (setWhatsapp s), data_ "site" (siteName c)] $ do
+-- | Popup formulir yang dikirim sebagai pesan WhatsApp (static/app.js [data-offer]).
+-- Tanpa JavaScript, formulir tetap membuka wa.me.
+data WaForm = WaForm
+  { wfId :: Text -- id popup; dibuka oleh [data-wa-open="<id>"]
+  , wfTitle :: Text
+  , wfLead :: Text
+  , wfLegend :: Text -- judul pilihan sekaligus label di pesan (Kategori/Topik)
+  , wfOptions :: [(Text, Text)] -- (nama, ikon)
+  , wfAskOrg :: Bool -- tampilkan isian usaha/instansi
+  , wfIntro :: Text -- kalimat pembuka pesan
+  , wfDetail :: Text -- label isian bebas di pesan
+  , wfAsk :: Text
+  , wfHint :: Text
+  }
+
+-- | Tombol "Hubungi" di navigasi: penawaran proyek, kategori dari blok harga.
+offerForm :: Ctx -> WaForm
+offerForm c =
+  WaForm "hubungi" "Ajukan penawaran proyek" "Isi singkat di bawah, lalu lanjutkan percakapan di WhatsApp." "Kategori proyek"
+    (cOffer c <> [("Konsultasi / lainnya", "fa-regular fa-comments")]) True "Saya ingin mengajukan penawaran proyek:" "Kebutuhan"
+    "Ceritakan kebutuhan Anda" "Contoh: website profil 5 halaman, ingin online bulan depan."
+
+-- | Tombol WhatsApp melayang: layanan pelanggan untuk konsultasi.
+supportForm :: WaForm
+supportForm =
+  WaForm "konsultasi" "Layanan pelanggan" "Ada pertanyaan atau butuh saran? Ceritakan di sini, saya balas lewat WhatsApp." "Topik"
+    [ ("Konsultasi website", "fa-regular fa-lightbulb"), ("Dukungan teknis", "fa-solid fa-screwdriver-wrench")
+    , ("Pertanyaan harga", "fa-solid fa-tag"), ("Lainnya", "fa-regular fa-comments") ]
+    False "Saya ingin berkonsultasi:" "Pesan" "Pesan Anda" "Contoh: website saya lambat dibuka, kira-kira kenapa?"
+
+waDialog :: Ctx -> WaForm -> Html ()
+waDialog c WaForm {..} =
+  term "dialog" [class_ "offer", id_ wfId, makeAttribute "aria-labelledby" (wfId <> "-title")] $
+    form_
+      [ class_ "offer-form", method_ "get", action_ ("https://wa.me/" <> setWhatsapp (cSettings c)), target_ "_blank"
+      , data_ "offer" (setWhatsapp (cSettings c)), data_ "site" (siteName c), data_ "intro" wfIntro, data_ "topic" (topicLabel wfLegend), data_ "detail" wfDetail
+      ] $ do
       button_ [type_ "button", class_ "offer-close", data_ "offer-close" "", makeAttribute "aria-label" "Tutup"] (icon "fa-solid fa-xmark")
       div_ [class_ "offer-head"] $ do
         span_ [class_ "offer-badge"] (icon "fa-brands fa-whatsapp")
-        h2_ [id_ "offer-title"] "Ajukan penawaran proyek"
-        p_ [class_ "muted"] "Isi singkat di bawah, lalu lanjutkan percakapan di WhatsApp."
-      div_ [class_ "offer-row"] $ do
+        h2_ [id_ (wfId <> "-title")] (toHtml wfTitle)
+        p_ [class_ "muted"] (toHtml wfLead)
+      div_ [class_ (if wfAskOrg then "offer-row" else "offer-one")] $ do
         field "Nama Anda" $ input_ [type_ "text", name_ "nama", required_ "required", makeAttribute "autocomplete" "name", maxlength_ "80"]
-        field "Usaha / instansi (opsional)" $ input_ [type_ "text", name_ "usaha", makeAttribute "autocomplete" "organization", maxlength_ "80"]
+        when wfAskOrg $ field "Usaha / instansi (opsional)" $ input_ [type_ "text", name_ "usaha", makeAttribute "autocomplete" "organization", maxlength_ "80"]
       fieldset_ [class_ "offer-cats"] $ do
-        legend_ "Kategori proyek"
-        forM_ (zip [0 :: Int ..] (cOffer c <> [("Konsultasi / lainnya", "fa-regular fa-comments")])) $ \(i, (name, ic)) ->
+        legend_ (toHtml wfLegend)
+        forM_ (zip [0 :: Int ..] wfOptions) $ \(i, (name, ic)) ->
           label_ [class_ "offer-cat"] $ do
             input_ ([type_ "radio", name_ "kategori", value_ name] <> [required_ "required" | i == 0])
             span_ $ do
               icon (if isBlank ic then "fa-solid fa-layer-group" else ic)
               toHtml name
-      field "Ceritakan kebutuhan Anda" $
-        textarea_ [name_ "text", rows_ "4", maxlength_ "1000", placeholder_ "Contoh: website profil 5 halaman, ingin online bulan depan."] ""
-      button_ [type_ "submit", class_ "btn btn-lg offer-submit"] (icon "fa-brands fa-whatsapp" >> "Kirim lewat WhatsApp")
+      field wfAsk $
+        textarea_ ([name_ "text", rows_ "4", maxlength_ "1000", placeholder_ wfHint] <> [required_ "required" | not wfAskOrg]) ""
+      button_ [type_ "submit", class_ "btn btn-lg offer-submit"] (icon "fa-brands fa-whatsapp" >> "Kirim")
       p_ [class_ "offer-note muted"] "Pesan dibuka di WhatsApp. Data tidak disimpan di situs ini."
   where
-    s = cSettings c
     field :: Text -> Html () -> Html ()
     field lbl inner = label_ [class_ "offer-field"] (span_ (toHtml lbl) >> inner)
+    topicLabel = T.takeWhile (/= ' ')
 
 -- | Header situs. Di HP menu halaman disembunyikan di balik tombol ☰ (panel turun,
 -- static/app.js [data-nav-toggle]); di layar lebar tampil sebagai kapsul menu.
@@ -305,7 +338,7 @@ siteHeader c active =
             span_ (toHtml title)
       div_ [class_ "site-actions"] $ do
         let s = cSettings c
-            (href, extra) = if T.null (setWhatsapp s) then ("/contact", []) else (waUrl s, [target_ "_blank", rel_ "noopener", data_ "offer-open" ""])
+            (href, extra) = if T.null (setWhatsapp s) then ("/contact", []) else (waUrl s, [target_ "_blank", rel_ "noopener", data_ "wa-open" "hubungi"])
         a_ ([href_ href, class_ "btn btn-sm site-cta", title_ "Hubungi"] <> extra) (icon "fa-brands fa-whatsapp" >> span_ [class_ "site-cta-label"] "Hubungi")
         button_
           [ type_ "button", class_ "nav-toggle", data_ "nav-toggle" ""
@@ -486,4 +519,4 @@ ac :: Text -> Attribute
 ac = makeAttribute "autocomplete"
 
 minLen :: Int -> Attribute
-minLen n = makeAttribute "minlength" (T.pack (show n))
+minLen n = makeAttribute "minlength" (tshow n)

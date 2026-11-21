@@ -10,14 +10,15 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import Data.Time
+import Data.Version (showVersion)
 import GHC.Conc (getNumCapabilities, getNumProcessors)
 import System.Directory (doesFileExist, getFileSize, listDirectory)
 import System.FilePath ((</>))
 import System.Info (arch, fullCompilerVersion, os)
-import Data.Version (showVersion)
 
 import CMS.DB (countActiveSessions, withDb)
 import CMS.Types
+import CMS.Util (oneDecimal, tshow)
 
 data ServerStatus = ServerStatus
   { ssDbOk :: Bool
@@ -52,9 +53,9 @@ getServerStatus env = do
       , ssStarted = local (envStarted env)
       , ssMemory = maybe "—" (\kb -> fmtBytes (kb * 1024)) (rss >>= readKb)
       , ssLoad = maybe "—" (T.unwords . take 3 . T.words) load
-      , ssCpu = tshow' procs <> " inti · " <> tshow' caps <> " thread RTS"
+      , ssCpu = tshow procs <> " inti · " <> tshow caps <> " thread RTS"
       , ssDbSize = fmtBytes dbBytes
-      , ssAssets = tshow' nFiles <> " file · " <> fmtBytes assetBytes
+      , ssAssets = tshow nFiles <> " file · " <> fmtBytes assetBytes
       , ssSessions = either (const 0) id sess
       , ssRuntime = "GHC " <> T.pack (showVersion fullCompilerVersion) <> " · " <> T.pack os <> "/" <> T.pack arch
       , ssTime = local now
@@ -71,15 +72,12 @@ statusPairs s =
   , ("cpu", ssCpu s)
   , ("dbsize", ssDbSize s)
   , ("assets", ssAssets s)
-  , ("sessions", tshow' (ssSessions s))
+  , ("sessions", tshow (ssSessions s))
   , ("runtime", ssRuntime s)
   , ("time", ssTime s)
   ]
 
 -- Bantu ------------------------------------------------------------------------------------
-
-tshow' :: Show a => a -> Text
-tshow' = T.pack . show
 
 safeRead :: FilePath -> IO (Maybe Text)
 safeRead p = either (const Nothing) Just <$> (try (TIO.readFile p) :: IO (Either SomeException Text))
@@ -121,24 +119,22 @@ folderStats dir = do
 
 fmtBytes :: Integer -> Text
 fmtBytes b
-  | b >= gb = one (fromIntegral b / fromIntegral gb) <> " GB"
-  | b >= mb = one (fromIntegral b / fromIntegral mb) <> " MB"
-  | b >= kb = one (fromIntegral b / fromIntegral kb) <> " KB"
-  | otherwise = tshow' b <> " B"
+  | b >= gb = oneDecimal (fromIntegral b / fromIntegral gb) <> " GB"
+  | b >= mb = oneDecimal (fromIntegral b / fromIntegral mb) <> " MB"
+  | b >= kb = oneDecimal (fromIntegral b / fromIntegral kb) <> " KB"
+  | otherwise = tshow b <> " B"
   where
     kb = 1024
     mb = kb * 1024
     gb = mb * 1024
-    one :: Double -> Text
-    one x = T.pack (show (fromIntegral (round (x * 10) :: Integer) / 10 :: Double))
 
 -- | 93784 detik -> "1 hari 2 jam 3 menit"
 fmtDuration :: Integer -> Text
 fmtDuration s
-  | d > 0 = T.unwords [tshow' d <> " hari", tshow' h <> " jam", tshow' m <> " menit"]
-  | h > 0 = T.unwords [tshow' h <> " jam", tshow' m <> " menit"]
-  | m > 0 = T.unwords [tshow' m <> " menit", tshow' sec <> " detik"]
-  | otherwise = tshow' sec <> " detik"
+  | d > 0 = T.unwords [tshow d <> " hari", tshow h <> " jam", tshow m <> " menit"]
+  | h > 0 = T.unwords [tshow h <> " jam", tshow m <> " menit"]
+  | m > 0 = T.unwords [tshow m <> " menit", tshow sec <> " detik"]
+  | otherwise = tshow sec <> " detik"
   where
     (d, r1) = s `divMod` 86400
     (h, r2) = r1 `divMod` 3600

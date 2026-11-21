@@ -3,36 +3,36 @@ module CMS.Handlers.Admin (adminRoute) where
 
 import Control.Monad (void, when)
 import Data.Aeson (eitherDecodeStrict, encode, object, (.=))
-import Data.Char (isAsciiLower, isAsciiUpper, isDigit)
 import qualified Data.Aeson.Key as Key
-import Data.Time
 import qualified Data.ByteString.Lazy as BL
+import Data.Char (isAsciiLower, isAsciiUpper, isDigit)
+import qualified Data.Map.Strict as M
 import Data.Maybe (fromMaybe, isJust, isNothing)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
-import Network.HTTP.Types
+import Data.Time
 import Database.SQLite.Simple (Connection)
+import Network.HTTP.Types
 import Network.Wai (Response, responseLBS)
 
+import CMS.Api (ApiConf (..), adKey, apiCatalog, decodeApiConf, defaultRateLimit, encodeApiConf)
 import CMS.Auth
 import CMS.Blocks
 import CMS.DB
-import CMS.Seo (analyze, seoInputOf, seoScore)
-import CMS.Views.SeoAdmin (SeoData (..), SeoWidget (..), seoPage)
-import CMS.Views.BranchAdmin (branchFormPage, branchesPage)
-import CMS.Views.ApiAdmin (ApiPageData (..), apiGatewayPage)
-import CMS.Api (ApiConf (..), adKey, apiCatalog, decodeApiConf, defaultRateLimit, encodeApiConf)
 import CMS.Handlers.Api (newApiKey)
-import qualified Data.Map.Strict as M
-import CMS.NavStyle (sanitizeNav)
 import CMS.Handlers.Public (forbidden, notFound, passwordErrors, validateAccount, validEmail)
+import CMS.NavStyle (sanitizeNav)
+import CMS.Seo (analyze, seoInputOf, seoScore)
 import CMS.Status (getServerStatus, statusPairs)
 import CMS.Types
 import CMS.Upload (removeAsset, saveImage)
 import CMS.Util
 import CMS.Views.Admin
+import CMS.Views.ApiAdmin (ApiPageData (..), apiGatewayPage)
+import CMS.Views.BranchAdmin (branchFormPage, branchesPage)
 import CMS.Views.PageAdmin (PageFilter (..), pageFormPage, pagesPage)
+import CMS.Views.SeoAdmin (SeoData (..), SeoWidget (..), seoPage)
 import CMS.Web
 
 type Handler = Ctx -> User -> IO Response
@@ -143,7 +143,7 @@ dashboard c u = do
       sel = fromMaybe (if inMonth today then today else first) $ do
         d <- parseDay (paramT c "tgl")
         if inMonth d then Just d else Nothing
-  cal <- withDb (cEnv c) $ \db -> publishedBetween db (T.pack (showGregorian first)) (T.pack (showGregorian lastDay))
+  cal <- withDb (cEnv c) $ \db -> publishedBetween db (dayText first) (dayText lastDay)
   status <- if isAdmin u then Just <$> getServerStatus (cEnv c) else pure Nothing
   seoW <-
     if isStaff u
@@ -679,7 +679,7 @@ dailyViews :: Connection -> Day -> Int -> IO [(Day, Int, Int)]
 dailyViews db today n = do
   rows <- viewsByDay db n
   let days = [addDays (negate (fromIntegral k)) today | k <- [n - 1, n - 2 .. 0]]
-      sumFor d p = sum [v | (dt, src, v) <- rows, dt == T.pack (showGregorian d), p src]
+      sumFor d p = sum [v | (dt, src, v) <- rows, dt == dayText d, p src]
   pure [(d, sumFor d (== "search"), sumFor d (/= "search")) | d <- days]
 
 seoIndex :: Ctx -> User -> [Text] -> IO Response

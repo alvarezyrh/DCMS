@@ -8,6 +8,7 @@ module CMS.Blocks
   , lookupSpec
   , fieldOf
   , cardVariants
+  , heroLayouts
   , cardClasses
   , youtubeId
   , safeUrl
@@ -46,7 +47,7 @@ import qualified Data.Text.Encoding as TE
 import Database.SQLite.Simple.FromRow
 
 import CMS.Types (PostSeo (..))
-import CMS.Util (readInt)
+import CMS.Util (clampInt, readInt)
 
 -- Tipe ----------------------------------------------------------------------------
 
@@ -127,7 +128,7 @@ data BlockSpec = BlockSpec
 
 blockSpecs :: [BlockSpec]
 blockSpecs =
-  [ BlockSpec "hero" "Hero" "fa-solid fa-flag" ["eyebrow", "title", "text", "btn", "href", "btn2", "href2", "src", "alt", "layout"] [] $
+  [ BlockSpec "hero" "Hero" "fa-solid fa-flag" ["eyebrow", "title", "text", "btn", "href", "btn2", "href2", "src", "alt", "layout", "badge1", "badge2"] [] $
       blk "hero" [("eyebrow", "Selamat datang"), ("title", "Judul besar untuk halaman Anda"), ("text", "Tulis kalimat pembuka yang singkat dan jelas."), ("btn", "Mulai"), ("href", "/contact")] []
   , BlockSpec "head" "Judul halaman" "fa-solid fa-heading" ["eyebrow", "title", "text"] [] $
       blk "head" [("eyebrow", "Bagian"), ("title", "Judul halaman"), ("text", "Keterangan singkat halaman ini.")] []
@@ -139,7 +140,7 @@ blockSpecs =
         , item [("icon", "fa-solid fa-shield-halved"), ("title", "Aman"), ("text", "Penjelasan singkat.")]
         , item [("icon", "fa-solid fa-headset"), ("title", "Dukungan"), ("text", "Penjelasan singkat.")]
         ]
-  , BlockSpec "split" "Gambar + teks" "fa-solid fa-image" ["eyebrow", "title", "text", "btn", "href", "src", "alt"] [] $
+  , BlockSpec "split" "Gambar + teks" "fa-solid fa-image" ["eyebrow", "title", "text", "btn", "href", "src", "alt", "photo"] [] $
       blk "split" [("eyebrow", "Tentang"), ("title", "Judul bagian"), ("text", "Ceritakan sesuatu di samping gambar."), ("btn", "Selengkapnya"), ("href", "/about"), ("src", placeholder), ("alt", "")] []
   , BlockSpec "stats" "Angka" "fa-solid fa-chart-simple" [] ["value", "label"] $
       blk "stats" [] [item [("value", "100+"), ("label", "Klien")], item [("value", "10"), ("label", "Tahun")], item [("value", "24/7"), ("label", "Dukungan")]]
@@ -186,6 +187,11 @@ blockSpecs =
         [ item [("tab", "Kategori 1"), ("icon", "fa-solid fa-building"), ("title", "Nama paket"), ("price", "Rp 0"), ("period", "/proyek"), ("text", "Deskripsi singkat paket."), ("features", "Fitur pertama\nFitur kedua\nFitur ketiga"), ("btn", "Pesan sekarang"), ("href", "/contact"), ("p1", "Contoh proyek A"), ("p1d", "Keterangan singkat proyek."), ("p2", "Contoh proyek B"), ("p2d", "Keterangan singkat proyek.")]
         , item [("tab", "Kategori 2"), ("icon", "fa-solid fa-user"), ("title", "Nama paket"), ("price", "Rp 0"), ("period", "/proyek"), ("text", "Deskripsi singkat paket."), ("features", "Fitur pertama\nFitur kedua\nFitur ketiga"), ("btn", "Pesan sekarang"), ("href", "/contact"), ("p1", "Contoh proyek A"), ("p1d", "Keterangan singkat proyek."), ("p2", "Contoh proyek B"), ("p2d", "Keterangan singkat proyek.")]
         ]
+  , BlockSpec "skills" "Keahlian (progress bar)" "fa-solid fa-bars-progress" ["eyebrow", "title", "text"] ["icon", "title", "level"] $
+      blk "skills" [("eyebrow", "Keahlian"), ("title", "Bahasa yang saya kuasai"), ("text", "")]
+        [ item [("icon", "fa-solid fa-code"), ("title", "Keahlian pertama"), ("level", "80")]
+        , item [("icon", "fa-solid fa-code"), ("title", "Keahlian kedua"), ("level", "60")]
+        ]
   , BlockSpec "team" "Tim" "fa-solid fa-user-group" ["eyebrow", "title", "text"] ["src", "alt", "title", "role", "text"] $
       blk "team" [("eyebrow", "Tim kami"), ("title", "Orang-orang di balik layanan kami"), ("text", "")]
         [ item [("src", placeholder), ("alt", ""), ("title", "Andi Pratama"), ("role", "Direktur"), ("text", "")]
@@ -210,6 +216,11 @@ blockSpecs =
         ]
         []
   ]
+
+-- | Posisi gambar hero; "cutout" = foto berlatar transparan yang berdiri di dasar hero.
+-- Harus sama dengan OPTIONS.layout di static/builder.js.
+heroLayouts :: [Text]
+heroLayouts = ["right", "left", "bg", "cutout"]
 
 lookupSpec :: Text -> Maybe BlockSpec
 lookupSpec t = find ((== t) . spType) blockSpecs
@@ -241,14 +252,16 @@ sanitizeBlocks bs
     clean allowed m = M.fromList [(k, cleanVal k v) | (k, v) <- M.toList m, k `elem` allowed]
     cleanVal k v
       | k `elem` ["href", "href2", "src", "url", "p1img", "p2img"] = safeUrl v
-      | k == "rating" = maybe "5" (T.pack . show . max 1 . min 5) (readInt (T.strip v))
+      | k == "rating" = fromMaybe "5" (clampInt 1 5 v)
+      | k == "level" = fromMaybe "0" (clampInt 0 100 v)
       | k == "featured" = if v == "1" then "1" else ""
       | k == "icon" = safeIcon v
-      | k == "layout" = if v `elem` ["right", "left", "bg"] then v else "right"
+      | k == "layout" = if v `elem` heroLayouts then v else "right"
+      | k == "photo" = if v == "cutout" then v else "frame"
       | Just (def, allowed) <- lookup k cardVariants = if v `elem` allowed then v else def
-      | k == "count" = maybe "3" (T.pack . show . max 1 . min 12) (readInt (T.strip v))
-      | k == "interval" = maybe "5" (T.pack . show . max 0 . min 30) (readInt (T.strip v))
-      | k == "delay" = maybe "2" (T.pack . show . max 0 . min 60) (readInt (T.strip v))
+      | k == "count" = fromMaybe "3" (clampInt 1 12 v)
+      | k == "interval" = fromMaybe "5" (clampInt 0 30 v)
+      | k == "delay" = fromMaybe "2" (clampInt 0 60 v)
       | k == "freq" = if v `elem` map fst popupFreqs then v else "session"
       | k `elem` ["html", "css", "js"] = T.take 50000 v
       | otherwise = T.take 4000 v

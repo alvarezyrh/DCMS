@@ -27,9 +27,9 @@ module CMS.NavStyle
   , pageBoxOn
   ) where
 
+import Control.Applicative ((<|>))
 import Data.Aeson (decodeStrict, encode)
 import qualified Data.ByteString.Lazy as BL
-import Control.Applicative ((<|>))
 import Data.Char (isControl, isHexDigit)
 import qualified Data.Map.Strict as M
 import Data.Maybe (fromMaybe, isNothing, mapMaybe)
@@ -39,7 +39,7 @@ import qualified Data.Text.Encoding as TE
 import Numeric (readHex)
 
 import CMS.Types (NavStyle)
-import CMS.Util (readInt)
+import CMS.Util (clampInt, readInt, tshow)
 
 data NavKind
   = NavColor
@@ -138,7 +138,7 @@ sanitizeNav m = M.fromList (mapMaybe one allFields)
       v <- T.strip <$> M.lookup (nfKey f) m
       (,) (nfKey f) <$> case nfKind f of
         NavColor -> cleanColor v
-        NavRange lo hi _ _ -> T.pack . show . max lo . min hi <$> readInt v
+        NavRange lo hi _ _ -> clampInt lo hi v
         NavToggle _ -> if v `elem` ["0", "1"] then Just v else Nothing
         NavSelect _ opts -> if v `elem` map fst opts then Just v else Nothing
         NavText mx multi _ ->
@@ -252,8 +252,8 @@ rgba hex a =
         _ -> 0
       alpha
         | a >= 100 = "1"
-        | otherwise = "0." <> T.justifyRight 2 '0' (T.pack (show a))
-   in "rgba(" <> T.intercalate "," (map (T.pack . show . byte) [0, 1, 2]) <> "," <> alpha <> ")"
+        | otherwise = "0." <> T.justifyRight 2 '0' (tshow a)
+   in "rgba(" <> T.intercalate "," (map (tshow . byte) [0, 1, 2]) <> "," <> alpha <> ")"
 
 -- | Navigasi bawah aktif kecuali dimatikan dari page builder.
 navBottomOn :: NavStyle -> Bool

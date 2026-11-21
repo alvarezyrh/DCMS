@@ -5,17 +5,17 @@ import Control.Monad (forM_, replicateM_, unless, when)
 import Data.Maybe (fromMaybe, isJust)
 import Data.Text (Text)
 import qualified Data.Text as T
-import Data.Time (Day, DayOfWeek (..), addGregorianMonthsClip, dayOfWeek, fromGregorian, gregorianMonthLength, showGregorian)
+import Data.Time (Day, DayOfWeek (..), addGregorianMonthsClip, dayOfWeek, fromGregorian, gregorianMonthLength)
 import Lucid
 import Lucid.Base (makeAttribute)
 
 import CMS.Seo
-import CMS.Views.SeoAdmin (SeoWidget, checkItem, scoreRing, seoWidgetCard)
-import CMS.Web (siteOrigin)
 import CMS.Status (ServerStatus (..))
 import CMS.Types
 import CMS.Util
 import CMS.Views.Layout
+import CMS.Views.SeoAdmin (SeoWidget, checkItem, scoreRing, seoWidgetCard)
+import CMS.Web (siteOrigin)
 
 -- Dashboard -------------------------------------------------------------------
 
@@ -144,7 +144,7 @@ calendarCard u CalendarData {..} =
               replicateM_ (min 3 (length ps)) (span_ [class_ "cal-dot"] "")
               when (length ps > 3) $ small_ (toHtml ("+" <> tshow (length ps - 3)))
     div_ [class_ "cal-list"] $ do
-      h4_ (toHtml ("Terbit " <> fmtDate (T.pack (showGregorian calSelected))))
+      h4_ (toHtml ("Terbit " <> fmtDate (dayText calSelected)))
       let sel = postsOn calSelected
       if null sel
         then p_ [class_ "muted"] "Tidak ada artikel yang terbit pada tanggal ini."
@@ -161,7 +161,7 @@ calendarCard u CalendarData {..} =
       " Hari ini"
   where
     first = fromGregorian calYear calMonth 1
-    postsOn day = [p | p@(_, _, _, d, _, _) <- calPosts, d == T.pack (showGregorian day)]
+    postsOn day = [p | p@(_, _, _, d, _, _) <- calPosts, d == dayText day]
     lead d = case dayOfWeek d of
       Monday -> 0
       Tuesday -> 1
@@ -170,9 +170,9 @@ calendarCard u CalendarData {..} =
       Friday -> 4
       Saturday -> 5
       Sunday -> 6
-    ym d = T.take 7 (T.pack (showGregorian d))
+    ym d = T.take 7 (dayText d)
     monthLink n = "/admin?bulan=" <> ym (addGregorianMonthsClip n first) <> "#kalender"
-    dayLink d = "/admin?bulan=" <> ym d <> "&tgl=" <> T.pack (showGregorian d) <> "#kalender"
+    dayLink d = "/admin?bulan=" <> ym d <> "&tgl=" <> dayText d <> "#kalender"
 
 monthName :: Int -> Text
 monthName m =

@@ -279,6 +279,19 @@
     });
   }
 
+  // ---------- Keahlian: bar progres terisi saat bagiannya terlihat ----------
+  if (!document.body.classList.contains("pb-editing") && !reduceMotion && "IntersectionObserver" in window) {
+    document.querySelectorAll(".skill-grid").forEach(function (grid) {
+      grid.classList.add("sk-wait");
+      var io = new IntersectionObserver(function (en) {
+        if (!en[0].isIntersecting) return;
+        grid.classList.remove("sk-wait");
+        io.disconnect();
+      }, { threshold: 0.3 });
+      io.observe(grid);
+    });
+  }
+
   // ---------- Sorot kartu mengikuti kursor ----------
   if (!document.body.classList.contains("pb-editing") && window.matchMedia("(hover: hover)").matches) {
     document.addEventListener("pointermove", function (e) {
@@ -400,38 +413,41 @@
     });
   });
 
-  // ---------- Popup Hubungi: formulir penawaran → pesan WhatsApp ----------
-  // Dibuka oleh [data-offer-open] (navigasi) dan tautan #hubungi. Tombol di blok harga
-  // per kategori memilih kategorinya otomatis.
-  var offer = document.getElementById("hubungi");
-  if (offer && typeof offer.showModal === "function" && !document.body.classList.contains("pb-editing")) {
-    var offerForm = offer.querySelector("[data-offer]");
-    var openOffer = function (kategori) {
-      offerForm.querySelectorAll('input[name="kategori"]').forEach(function (r) { r.checked = !!kategori && r.value === kategori; });
-      offer.showModal();
-      offerForm.querySelector('input[name="nama"]').focus();
-    };
+  // ---------- Popup WhatsApp: penawaran proyek (#hubungi) & layanan pelanggan (#konsultasi) ----------
+  // Dibuka oleh [data-wa-open="<id>"] dan tautan #hubungi. Tombol di blok harga per
+  // kategori memilih kategorinya otomatis. Isian disusun jadi pesan WhatsApp.
+  if (!document.body.classList.contains("pb-editing")) {
     document.addEventListener("click", function (e) {
-      var a = e.target.closest && e.target.closest('[data-offer-open], a[href="#hubungi"]');
+      var a = e.target.closest && e.target.closest('[data-wa-open], a[href="#hubungi"]');
       if (!a) return;
+      var dlg = document.getElementById(a.getAttribute("data-wa-open") || "hubungi");
+      if (!dlg || typeof dlg.showModal !== "function") return;
       e.preventDefault();
       var panel = a.closest(".pt-panel");
       var tab = panel && document.getElementById(panel.getAttribute("aria-labelledby"));
-      openOffer(tab ? tab.querySelector("strong").textContent.trim() : "");
+      var pick = tab ? tab.querySelector("strong").textContent.trim() : "";
+      dlg.querySelectorAll('input[name="kategori"]').forEach(function (r) { r.checked = !!pick && r.value === pick; });
+      dlg.showModal();
+      dlg.querySelector('input[name="nama"]').focus();
     });
-    offer.querySelector("[data-offer-close]").addEventListener("click", function () { offer.close(); });
-    offer.addEventListener("click", function (e) { if (e.target === offer) offer.close(); });
-    offerForm.addEventListener("submit", function (e) {
-      e.preventDefault();
-      var v = function (n) { var el = offerForm.elements[n]; return el ? (el.value || "").trim() : ""; };
-      var usaha = v("usaha");
-      var msg = "Halo " + offerForm.getAttribute("data-site") + ", saya " + v("nama") + (usaha ? " dari " + usaha : "") + ".\n\n" +
-        "Saya ingin mengajukan penawaran proyek:\n" +
-        "• Kategori: " + v("kategori") + "\n" +
-        "• Kebutuhan: " + (v("text") || "-") + "\n\nTerima kasih.";
-      window.open("https://wa.me/" + offerForm.getAttribute("data-offer") + "?text=" + encodeURIComponent(msg), "_blank", "noopener");
-      offer.close();
-      offerForm.reset();
+
+    document.querySelectorAll("form[data-offer]").forEach(function (form) {
+      var dlg = form.closest("dialog");
+      dlg.querySelector("[data-offer-close]").addEventListener("click", function () { dlg.close(); });
+      dlg.addEventListener("click", function (e) { if (e.target === dlg) dlg.close(); });
+      form.addEventListener("submit", function (e) {
+        e.preventDefault();
+        var v = function (n) { var el = form.elements[n]; return el ? (el.value || "").trim() : ""; };
+        var attr = function (n) { return form.getAttribute("data-" + n); };
+        var usaha = v("usaha");
+        var msg = "Halo " + attr("site") + ", saya " + v("nama") + (usaha ? " dari " + usaha : "") + ".\n\n" +
+          attr("intro") + "\n" +
+          "• " + attr("topic") + ": " + v("kategori") + "\n" +
+          "• " + attr("detail") + ": " + (v("text") || "-") + "\n\nTerima kasih.";
+        window.open("https://wa.me/" + attr("offer") + "?text=" + encodeURIComponent(msg), "_blank", "noopener");
+        dlg.close();
+        form.reset();
+      });
     });
   }
 

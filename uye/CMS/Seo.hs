@@ -23,7 +23,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 
 import CMS.Types
-import CMS.Util (isBlank, plainExcerpt, slugify)
+import CMS.Util (isBlank, oneDecimal, plainExcerpt, slugify, tshow)
 
 data Level = Good | Warn | Bad
   deriving (Eq, Show)
@@ -126,20 +126,20 @@ analyze SeoInput {..} =
       | otherwise -> Check Good ("Kepadatan kata kunci pas (" <> pct density <> ")")
   , let n = T.length title
      in if
-          | n >= 30 && n <= 60 -> Check Good ("Panjang judul SEO pas (" <> tshow' n <> " karakter)")
+          | n >= 30 && n <= 60 -> Check Good ("Panjang judul SEO pas (" <> tshow n <> " karakter)")
           | n == 0 -> Check Bad "Judul masih kosong"
-          | n < 30 -> Check Warn ("Judul SEO terlalu pendek (" <> tshow' n <> "/30–60 karakter)")
-          | otherwise -> Check Warn ("Judul SEO terlalu panjang, akan terpotong di Google (" <> tshow' n <> "/60)")
+          | n < 30 -> Check Warn ("Judul SEO terlalu pendek (" <> tshow n <> "/30–60 karakter)")
+          | otherwise -> Check Warn ("Judul SEO terlalu panjang, akan terpotong di Google (" <> tshow n <> "/60)")
   , let n = T.length desc
      in if
           | isBlank (seoDesc siSeo) -> Check Bad "Tulis deskripsi meta sendiri (saat ini diambil otomatis)"
-          | n >= 120 && n <= 160 -> Check Good ("Panjang deskripsi meta pas (" <> tshow' n <> " karakter)")
-          | n < 120 -> Check Warn ("Deskripsi meta terlalu pendek (" <> tshow' n <> "/120–160 karakter)")
-          | otherwise -> Check Warn ("Deskripsi meta terlalu panjang (" <> tshow' n <> "/160 karakter)")
+          | n >= 120 && n <= 160 -> Check Good ("Panjang deskripsi meta pas (" <> tshow n <> " karakter)")
+          | n < 120 -> Check Warn ("Deskripsi meta terlalu pendek (" <> tshow n <> "/120–160 karakter)")
+          | otherwise -> Check Warn ("Deskripsi meta terlalu panjang (" <> tshow n <> "/160 karakter)")
   , if
-      | wc >= 300 -> Check Good ("Panjang artikel cukup (" <> tshow' wc <> " kata)")
-      | wc >= 150 -> Check Warn ("Artikel agak pendek (" <> tshow' wc <> " kata); targetkan 300+")
-      | otherwise -> Check Bad ("Artikel terlalu pendek (" <> tshow' wc <> " kata); targetkan 300+")
+      | wc >= 300 -> Check Good ("Panjang artikel cukup (" <> tshow wc <> " kata)")
+      | wc >= 150 -> Check Warn ("Artikel agak pendek (" <> tshow wc <> " kata); targetkan 300+")
+      | otherwise -> Check Bad ("Artikel terlalu pendek (" <> tshow wc <> " kata); targetkan 300+")
   , if any (\l -> "## " `T.isPrefixOf` l || "### " `T.isPrefixOf` l) (map T.strip (T.lines siBody))
       then Check Good "Ada subjudul (## …) untuk memecah isi"
       else Check Warn "Tambahkan subjudul (## …) agar mudah dibaca"
@@ -164,8 +164,7 @@ analyze SeoInput {..} =
       | ok = Check Good good
       | otherwise = Check Bad bad
     internal u = "/" `T.isPrefixOf` u && not ("//" `T.isPrefixOf` u)
-    pct d = T.replace "." "," (T.pack (show (fromIntegral (round (d * 10) :: Int) / 10 :: Double))) <> "%"
-    tshow' = T.pack . show
+    pct d = T.replace "." "," (oneDecimal d) <> "%"
 
 -- | Skor 0–100: Baik = 1, Cukup = ½, Buruk = 0, dirata-rata.
 seoScore :: [Check] -> Int

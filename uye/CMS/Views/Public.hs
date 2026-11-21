@@ -12,11 +12,10 @@ import Lucid
 import Lucid.Base (makeAttribute)
 
 import CMS.Seo (effectiveDesc)
-import CMS.Web (siteOrigin)
-
 import CMS.Types
 import CMS.Util
 import CMS.Views.Layout
+import CMS.Web (siteOrigin)
 
 postMeta :: Post -> Html ()
 postMeta p = div_ [class_ "post-meta"] $ do

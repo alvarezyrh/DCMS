@@ -34,6 +34,7 @@
     delay: "Muncul setelah … detik (0 = langsung)",
     freq: "Seberapa sering tampil",
     layout: "Posisi gambar",
+    photo: "Gaya foto",
     url: "Tautan video YouTube",
     rating: "Jumlah bintang (1–5)",
     featured: "Sorot paket ini",
@@ -47,7 +48,8 @@
   };
   var CODE_FIELDS = { html: 1, css: 1, js: 1 };
   var OPTIONS = {
-    layout: [["right", "Di kanan teks"], ["left", "Di kiri teks"], ["bg", "Latar penuh (teks putih)"]],
+    photo: [["frame", "Bingkai (foto biasa)"], ["cutout", "Foto potong (latar transparan)"]],
+    layout: [["right", "Di kanan teks"], ["left", "Di kiri teks"], ["bg", "Latar penuh (teks putih)"], ["cutout", "Foto potong (latar transparan)"]],
     // Harus sama dengan cardVariants di CMS/Blocks.hs.
     style: [
       ["card", "Kartu (bawaan)"], ["outline", "Garis tepi"], ["lift", "Melayang (bayangan)"],

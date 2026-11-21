@@ -11,6 +11,7 @@ import Lucid
 
 import CMS.Api
 import CMS.Types
+import CMS.Util (tshow)
 import CMS.Views.Layout
 import CMS.Web (siteOrigin)
 
@@ -59,7 +60,7 @@ apiDocsPage c conf =
               docSection "batas" "Batas permintaan" $ do
                 p_ $ do
                   "Setiap key punya batas permintaan per menit (akses publik: "
-                  toHtml (tshow' publicRateLimit)
+                  toHtml (tshow publicRateLimit)
                   " per menit per IP). Sisa kuota ada di header "
                   kode "X-RateLimit-Limit"
                   " dan "
@@ -117,7 +118,6 @@ apiDocsPage c conf =
       , ("404", "Data/endpoint tidak ada, atau API sedang dimatikan")
       , ("429", "Batas permintaan per menit terlampaui")
       ]
-    tshow' = T.pack . show
 
 docSection :: Text -> Text -> Html () -> Html ()
 docSection sid title inner =

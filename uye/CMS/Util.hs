@@ -6,7 +6,9 @@ import Data.Char (isAlphaNum, isAscii, isDigit, isSpace)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Read as TR
+import Data.Time (Day, showGregorian)
 import Text.Read (readMaybe)
+
 
 slugify :: Text -> Text
 slugify t =
@@ -62,6 +64,18 @@ isBlank = T.all isSpace
 
 tshow :: Show a => a -> Text
 tshow = T.pack . show
+
+-- | Satu angka di belakang koma, mis. 12.345 -> "12.3".
+oneDecimal :: Double -> Text
+oneDecimal x = tshow (fromIntegral (round (x * 10) :: Integer) / 10 :: Double)
+
+-- | Tanggal ISO, mis. "2026-11-21".
+dayText :: Day -> Text
+dayText = T.pack . showGregorian
+
+-- | Angka dari teks, dibatasi ke rentang [lo, hi]; Nothing bila bukan angka.
+clampInt :: Int -> Int -> Text -> Maybe Text
+clampInt lo hi v = tshow . max lo . min hi <$> readInt (T.strip v)
 
 -- | Nomor Indonesia -> format internasional tanpa "+", mis. "0822-9999-5125" -> "6282299995125".
 waNumber :: Text -> Text

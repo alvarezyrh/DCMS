@@ -10,10 +10,10 @@ import Control.Concurrent.MVar (modifyMVar)
 import Control.Monad (mfilter)
 import Data.Aeson
 import qualified Data.Aeson.Key as Key
+import qualified Data.ByteString as B
 import Data.List (sortOn)
 import qualified Data.Map.Strict as M
 import Data.Maybe (fromMaybe, isJust)
-import qualified Data.ByteString as B
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
