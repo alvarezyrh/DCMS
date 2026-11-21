@@ -2,19 +2,20 @@
 module CMS.Handlers.Public where
 
 import Control.Monad (void)
+import qualified Data.ByteString.Lazy as BL
 import Data.Char (isAlphaNum, isAscii)
+import Data.List (find)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
-import Network.HTTP.Types
 import Database.SQLite.Simple (Connection)
+import Network.HTTP.Types
 import Network.Wai (Response, responseLBS)
-import qualified Data.ByteString.Lazy as BL
 
 import CMS.Auth
-import CMS.RateLimit (blockedFor, clearKeys, recordFailure)
 import CMS.Blocks (Page (..), pagePath, postsWanted)
 import CMS.DB
+import CMS.RateLimit (blockedFor, clearKeys, recordFailure)
 import CMS.Types
 import CMS.Util
 import CMS.Views.Layout (messagePage)
@@ -68,14 +69,20 @@ blogPage c =
           q = paramT c "q"
           page = pageParam c
           per = setPerPage (cSettings c)
+          active = paramT c "kategori"
           flt = noFilter {fStatus = Just Published, fSearch = nonEmpty q}
-      (posts, total, cats) <- withDb (cEnv c) $ \db -> do
-        (ps, t) <- listPosts db flt ByPublished page per
-        cs <- listCategories db
-        pure (ps, t, cs)
+      bl <- withDb (cEnv c) $ \db -> do
+        cats <- listCategories db
+        (firstPage, allTotal) <- listPosts db flt ByPublished 1 per
+        -- Semua artikel muat di satu halaman: tab kategori berganti di browser tanpa
+        -- memuat ulang. Selebihnya kategori difilter di server (dengan paginasi).
+        let instant = isBlank q && allTotal <= per
+            catFlt = flt {fCategory = catId <$> find ((== active) . catSlug) cats}
+        (posts, total) <- if instant then pure (firstPage, allTotal) else listPosts db catFlt ByPublished page per
+        pure BlogList {blCats = cats, blPosts = posts, blQuery = q, blActive = active, blInstant = instant, blAll = allTotal, blPage = page, blPages = totalPages total per}
       latest <- latestPosts c (if edit then 6 else postsWanted (pageBlocks pg))
       pd <- pageData c pg edit latest
-      ok (pageView c pg edit pd (blogListing edit cats posts q page (totalPages total per)))
+      ok (pageView c pg edit pd (blogListing edit bl))
     _ -> notFound c
 
 -- | Data dinamis untuk blok halaman; cabang hanya diambil bila dipakai.

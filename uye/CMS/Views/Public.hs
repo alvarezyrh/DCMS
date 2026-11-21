@@ -11,7 +11,7 @@ import qualified Data.Text.Encoding as TE
 import Lucid
 import Lucid.Base (makeAttribute)
 
-import CMS.Seo (effectiveDesc, firstImage)
+import CMS.Seo (effectiveDesc)
 import CMS.Web (siteOrigin)
 
 import CMS.Types
@@ -27,6 +27,7 @@ postMeta p = div_ [class_ "post-meta"] $ do
 
 postCard :: Post -> Html ()
 postCard p = article_ [class_ "card post-card"] $ do
+  postCover p
   postMeta p
   h2_ $ a_ [href_ ("/post/" <> postSlug p)] (toHtml (postTitle p))
   p_ [class_ "excerpt"] $
@@ -72,7 +73,7 @@ postPage c cats p = publicLayoutMeta c cats meta $
     s = postSeo p
     site = setSiteName (cSettings c)
     desc = effectiveDesc (postExcerpt p) (postBody p) s
-    image = if isBlank (seoImage s) then firstImage (postBody p) else Just (seoImage s)
+    image = postImage p
     published = fromMaybe (postCreated p) (postPublished p)
     origin = siteOrigin c
     absolute u = if "/" `T.isPrefixOf` u && not ("//" `T.isPrefixOf` u) then origin <> u else u

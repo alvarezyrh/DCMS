@@ -22,6 +22,7 @@ module CMS.Blocks
   , safeIcon
   , popupFreqs
   , isSystemPage
+  , isRequiredPage
   , defaultPageIcon
   , PageInput (..)
   , PageTemplate (..)
@@ -179,6 +180,12 @@ blockSpecs =
         , item [("title", "Bisnis"), ("price", "Rp 999rb"), ("period", "/bulan"), ("text", "Paling banyak dipilih."), ("features", "5 pengguna\nDukungan prioritas\nLaporan mingguan\nKonsultasi bulanan"), ("btn", "Pilih paket"), ("href", "/contact"), ("featured", "1")]
         , item [("title", "Korporat"), ("price", "Hubungi kami"), ("period", ""), ("text", "Solusi khusus untuk perusahaan."), ("features", "Pengguna tak terbatas\nManajer akun khusus\nSLA 24/7"), ("btn", "Konsultasi"), ("href", "/contact"), ("featured", "")]
         ]
+  , BlockSpec "pricetabs" "Harga per kategori" "fa-solid fa-layer-group" ["eyebrow", "title", "text"]
+      ["tab", "icon", "title", "price", "period", "text", "features", "btn", "href", "p1", "p1d", "p1img", "p2", "p2d", "p2img"] $
+      blk "pricetabs" [("eyebrow", "Harga"), ("title", "Pilih paket sesuai kebutuhan"), ("text", "")]
+        [ item [("tab", "Kategori 1"), ("icon", "fa-solid fa-building"), ("title", "Nama paket"), ("price", "Rp 0"), ("period", "/proyek"), ("text", "Deskripsi singkat paket."), ("features", "Fitur pertama\nFitur kedua\nFitur ketiga"), ("btn", "Pesan sekarang"), ("href", "/contact"), ("p1", "Contoh proyek A"), ("p1d", "Keterangan singkat proyek."), ("p2", "Contoh proyek B"), ("p2d", "Keterangan singkat proyek.")]
+        , item [("tab", "Kategori 2"), ("icon", "fa-solid fa-user"), ("title", "Nama paket"), ("price", "Rp 0"), ("period", "/proyek"), ("text", "Deskripsi singkat paket."), ("features", "Fitur pertama\nFitur kedua\nFitur ketiga"), ("btn", "Pesan sekarang"), ("href", "/contact"), ("p1", "Contoh proyek A"), ("p1d", "Keterangan singkat proyek."), ("p2", "Contoh proyek B"), ("p2d", "Keterangan singkat proyek.")]
+        ]
   , BlockSpec "team" "Tim" "fa-solid fa-user-group" ["eyebrow", "title", "text"] ["src", "alt", "title", "role", "text"] $
       blk "team" [("eyebrow", "Tim kami"), ("title", "Orang-orang di balik layanan kami"), ("text", "")]
         [ item [("src", placeholder), ("alt", ""), ("title", "Andi Pratama"), ("role", "Direktur"), ("text", "")]
@@ -233,7 +240,7 @@ sanitizeBlocks bs
   where
     clean allowed m = M.fromList [(k, cleanVal k v) | (k, v) <- M.toList m, k `elem` allowed]
     cleanVal k v
-      | k `elem` ["href", "href2", "src", "url"] = safeUrl v
+      | k `elem` ["href", "href2", "src", "url", "p1img", "p2img"] = safeUrl v
       | k == "rating" = maybe "5" (T.pack . show . max 1 . min 5) (readInt (T.strip v))
       | k == "featured" = if v == "1" then "1" else ""
       | k == "icon" = safeIcon v
@@ -379,9 +386,13 @@ sitePages =
 
 -- Halaman buatan pengguna ------------------------------------------------------------------
 
--- | Halaman bawaan (Home, About Us, …): tidak bisa dihapus dan alamatnya tetap.
+-- | Halaman bawaan (Home, About Us, …): alamatnya tetap.
 isSystemPage :: Text -> Bool
 isSystemPage s = any ((== s) . spSlug) sitePages
+
+-- | Halaman yang tidak bisa dihapus: rute / dan /blog bergantung padanya.
+isRequiredPage :: Text -> Bool
+isRequiredPage = (`elem` ["home", "blog"])
 
 -- | Ikon menu bawaan untuk halaman bawaan; halaman baru memakai ikon berkas.
 defaultPageIcon :: Text -> Text

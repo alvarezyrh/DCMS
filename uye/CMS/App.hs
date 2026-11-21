@@ -88,8 +88,11 @@ handle env req = do
           , False
           )
         Left (_ :: SomeException) -> ([], [], True)
-  (mSess, settings, menu) <- withDb env $ \db ->
-    (,,) <$> firstValidSession db sidToks <*> getSettings db <*> listMenu db
+  -- Kategori popup Hubungi hanya dibutuhkan halaman situs (bukan dashboard/API).
+  let sitePage = method == methodGet && take 1 (pathInfo req) `notElem` [["admin"], ["api"]]
+  (mSess, settings, menu, offer) <- withDb env $ \db ->
+    (,,,) <$> firstValidSession db sidToks <*> getSettings db <*> listMenu db
+      <*> (if sitePage then offerCategories db else pure [])
   let mUser = snd <$> mSess
       sessTok = maybe (listToMaybe sidToks) (Just . fst) mSess
   (csrf, newCsrf) <- case filter ((== 64) . T.length) (cookieVals (csrfCookie env)) of
@@ -113,6 +116,7 @@ handle env req = do
           , cFlash = flash
           , cSettings = settings
           , cMenu = menu
+          , cOffer = offer
           , cYear = T.pack (show year)
           }
   result <-

@@ -3,20 +3,21 @@
 -- Satu renderer dipakai untuk tampilan biasa dan mode edit. Di mode edit, setiap
 -- isian diberi atribut data-f (teks) / data-fa (atribut seperti URL atau ikon)
 -- yang dibaca kembali oleh static/builder.js saat menyimpan.
-module CMS.Views.Site (PageData (..), pageView, blogListing, needsBranches) where
+module CMS.Views.Site (PageData (..), BlogList (..), pageView, blogListing, needsBranches) where
 
-import Control.Monad (forM_, unless, when)
+import Control.Monad (forM_, replicateM_, unless, when)
 import Data.Aeson (encode, object, (.=))
-import Data.Char (isDigit)
-import Network.HTTP.Types.URI (urlEncode)
 import qualified Data.ByteString.Lazy as BL
-import qualified Data.Text.Encoding as TE
+import Data.Char (isAlphaNum, isDigit)
+import Data.List (find)
 import qualified Data.Map.Strict as M
 import Data.Maybe (fromMaybe, isJust, isNothing)
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
 import Lucid
 import Lucid.Base (makeAttribute)
+import Network.HTTP.Types.URI (urlEncode)
 
 import CMS.Blocks
 import CMS.NavStyle
@@ -77,28 +78,64 @@ pageView c pg edit pd extra =
     bodyAttrs = if edit then [class_ "site pb-editing", data_ "page" (pageSlug pg)] else [class_ "site"]
 
 -- | Daftar artikel di halaman Blog (tidak bisa diedit: isinya dari menu Artikel).
-blogListing :: Bool -> [Category] -> [Post] -> Text -> Int -> Int -> Html ()
-blogListing edit cats posts q page pages =
+-- | Isi daftar artikel di halaman Blog.
+data BlogList = BlogList
+  { blCats :: [Category]
+  , blPosts :: [Post]
+  , blQuery :: Text
+  , blActive :: Text -- slug kategori terpilih ("" = semua)
+  , blInstant :: Bool -- semua artikel termuat: tab kategori berganti di browser
+  , blAll :: Int -- jumlah semua artikel terbit
+  , blPage :: Int
+  , blPages :: Int
+  }
+
+-- | Blog: tab kategori di kiri (static/app.js [data-blog-tabs]), daftar artikel di kanan.
+blogListing :: Bool -> BlogList -> Html ()
+blogListing edit BlogList {..} =
   section_ [class_ ("pb blog-list" <> if edit then " pb-locked" else "")] $
     div_ [class_ "wrap"] $ do
       when edit $
         p_ [class_ "pb-locked-note"] $ do
           icon "fa-solid fa-lock"
           " Daftar artikel diisi otomatis dari menu Artikel."
-      div_ [class_ "blog-tools"] $ do
-        form_ [method_ "get", action_ "/blog", class_ "search", role_ "search"] $
-          input_ [type_ "search", name_ "q", placeholder_ "Cari artikel…", value_ q, makeAttribute "aria-label" "Cari artikel"]
-        let visible = filter ((> 0) . catCount) cats
-        unless (null visible) $
-          nav_ [class_ "chips"] $ do
-            a_ [href_ "/blog", class_ "chip"] "Semua"
-            forM_ visible $ \k -> a_ [href_ ("/category/" <> catSlug k), class_ "chip"] (toHtml (catName k))
-      unless (isBlank q) $
-        p_ [class_ "muted"] (toHtml ("Hasil pencarian untuk “" <> q <> "”"))
-      if null posts
-        then emptyState "Belum ada artikel yang cocok."
-        else div_ [class_ "pb-grid pb-posts-grid"] (mapM_ postTile posts)
-      pagination "/blog" [("q", q)] page pages
+      div_ [class_ "blog-layout"] $ do
+        aside_ [class_ "blog-side"] $ do
+          form_ [method_ "get", action_ "/blog", class_ "search", role_ "search"] $
+            input_ [type_ "search", name_ "q", placeholder_ "Cari artikel…", value_ blQuery, makeAttribute "aria-label" "Cari artikel"]
+          nav_ ([class_ "pt-tabs blog-cats", makeAttribute "aria-label" "Kategori artikel"] <> [data_ "blog-tabs" "" | blInstant && not edit]) $ do
+            catTab "" "Semua artikel" "fa-solid fa-border-all" blAll
+            forM_ (filter ((> 0) . catCount) blCats) $ \k -> catTab (catSlug k) (catName k) (catIcon (catSlug k)) (catCount k)
+            span_ [class_ "pt-glider", makeAttribute "aria-hidden" "true"] ""
+        div_ [class_ "blog-main"] $ do
+          unless (isBlank blQuery) $
+            p_ [class_ "muted"] (toHtml ("Hasil pencarian untuk “" <> blQuery <> "”"))
+          div_ [class_ "pb-grid pb-posts-grid blog-grid"] $
+            forM_ blPosts $ \p -> postTileWith [hidden_ "" | not (shown p)] p
+          let none = not (any shown blPosts)
+          div_ ([class_ "empty", data_ "blog-empty" ""] <> [hidden_ "" | not none]) $
+            p_ (if isBlank blQuery then "Belum ada artikel di kategori ini." else "Belum ada artikel yang cocok.")
+          pagination "/blog" [("q", blQuery), ("kategori", blActive)] blPage blPages
+  where
+    shown p = not blInstant || T.null blActive || postCategorySlug p == Just blActive
+    catTab :: Text -> Text -> Text -> Int -> Html ()
+    catTab slug name ic n =
+      a_ ([href_ (if T.null slug then "/blog" else "/blog?kategori=" <> slug), class_ ("pt-tab" <> if slug == blActive then " is-active" else ""), data_ "cat" slug]
+            <> [makeAttribute "aria-current" "page" | slug == blActive]) $ do
+        span_ [class_ "pb-ico"] (icon ic)
+        span_ [class_ "pt-tab-text"] $ do
+          strong_ (toHtml name)
+          small_ (toHtml (tshow n <> " artikel"))
+
+-- | Ikon tab kategori, ditebak dari slug-nya (kategori tidak punya isian ikon).
+catIcon :: Text -> Text
+catIcon slug = maybe "fa-regular fa-folder" snd (find ((`T.isInfixOf` slug) . fst) icons)
+  where
+    icons =
+      [ ("linux", "fa-brands fa-linux"), ("server", "fa-solid fa-server"), ("keamanan", "fa-solid fa-shield-halved")
+      , ("security", "fa-solid fa-shield-halved"), ("cloud", "fa-solid fa-cloud"), ("hosting", "fa-solid fa-cloud")
+      , ("teknologi", "fa-solid fa-microchip"), ("tutorial", "fa-solid fa-graduation-cap"), ("umum", "fa-regular fa-newspaper")
+      ]
 
 -- Blok ---------------------------------------------------------------------------------
 
@@ -118,7 +155,7 @@ renderBlock edit pd b = case bType b of
     div_ [class_ "hero-grid"] $ do
       div_ [class_ "hero-inner"] $ do
         txt fs p_ [class_ "eyebrow"] "eyebrow" "Label kecil"
-        txt fs h1_ [] "title" "Judul besar"
+        title fs h1_ "Judul besar"
         txt fs p_ [class_ "lead ml"] "text" "Kalimat pembuka"
         actions $ do
           btnLink fs "btn btn-lg" "btn" "href"
@@ -129,7 +166,7 @@ renderBlock edit pd b = case bType b of
           img_ ([class_ "hero-img", src_ (if T.null heroSrc then "/asset/img/placeholder.svg" else heroSrc), alt_ (fieldOf "alt" fs)] <> [makeAttribute "fetchpriority" "high" | not edit])
   "head" -> section $ do
     txt fs p_ [class_ "eyebrow"] "eyebrow" "Label kecil"
-    txt fs h1_ [] "title" "Judul halaman"
+    title fs h1_ "Judul halaman"
     txt fs p_ [class_ "lead ml"] "text" "Keterangan singkat"
   "text" -> section $ div_ [class_ "pb-narrow"] $ do
     txt fs h2_ [] "title" "Judul bagian"
@@ -297,13 +334,27 @@ renderBlock edit pd b = case bType b of
         txt it strong_ [] "price" "Rp 0"
         txt it span_ [class_ "muted"] "period" "/bulan"
       txt it p_ [class_ "muted ml price-desc"] "text" "Deskripsi singkat"
-      if edit
-        then txt it div_ [class_ "price-features ml"] "features" "Satu fitur per baris"
-        else do
-          let feats = filter (not . isBlank) (T.lines (fieldOf "features" it))
-          unless (null feats) $
-            ul_ [class_ "price-features"] $ forM_ feats $ \l -> li_ (icon "fa-solid fa-check" >> span_ (toHtml (T.strip l)))
+      featureList it
       btnLink it ("btn price-btn" <> if featured then "" else " btn-ghost") "btn" "href"
+  "pricetabs" -> section $ do
+    sectionHead fs
+    if edit
+      then itemsOf "pt-edit" "pb-card pt-item" $ \it -> do
+        div_ [class_ "pt-item-tab"] (ico it >> txt it strong_ [] "tab" "Nama kategori")
+        priceTab it
+      else unless (null (bItems b)) $
+        div_ [class_ "pt", data_ "pt" ""] $ do
+          div_ [class_ "pt-tabs", role_ "tablist", makeAttribute "aria-orientation" "vertical"] $ do
+            forM_ (bItems b) $ \it ->
+              button_ [type_ "button", class_ "pt-tab", role_ "tab"] $ do
+                ico it
+                span_ [class_ "pt-tab-text"] $ do
+                  strong_ (toHtml (fieldOf "tab" it))
+                  unless (isBlank (fieldOf "price" it)) $ small_ (toHtml (fieldOf "price" it))
+                span_ [class_ "pt-prog"] ""
+            span_ [class_ "pt-glider", makeAttribute "aria-hidden" "true"] ""
+          div_ [class_ "pt-panels"] $
+            forM_ (bItems b) $ \it -> div_ [class_ "pb-card pt-panel", role_ "tabpanel"] (priceTab it)
   "team" -> section $ do
     sectionHead fs
     itemsOf "pb-grid team-grid" "team-card" $ \it -> do
@@ -382,6 +433,15 @@ renderBlock edit pd b = case bType b of
       where
         v = fieldOf name m
 
+    -- Judul: *kata* disorot warna tema (hanya saat dilihat; di editor tetap teks biasa).
+    title :: Fields -> ([Attribute] -> Html () -> Html ()) -> Text -> Html ()
+    title m el ph
+      | edit || length parts < 3 || even (length parts) = txt m el [] "title" ph
+      | otherwise = el [] (mapM_ seg (zip [0 :: Int ..] parts))
+      where
+        parts = T.splitOn "*" (fieldOf "title" m)
+        seg (i, t) = if odd i then em_ [class_ "hl"] (toHtml t) else toHtml t
+
     btnLink :: Fields -> Text -> Text -> Text -> Html ()
     btnLink m cls lf hf
       | edit = a_ [class_ cls, href_ h, data_ "f" lf, data_ "fa" (hf <> ":href"), data_ "ph" "Teks tombol"] (toHtml l)
@@ -411,6 +471,54 @@ renderBlock edit pd b = case bType b of
         n = maybe 5 (max 1 . min 5) (readInt (fieldOf "rating" it))
         r = tshow n
 
+    featureList :: Fields -> Html ()
+    featureList it
+      | edit = txt it div_ [class_ "price-features ml"] "features" "Satu fitur per baris"
+      | otherwise =
+          let feats = filter (not . isBlank) (T.lines (fieldOf "features" it))
+           in unless (null feats) $
+                ul_ [class_ "price-features"] $ forM_ feats $ \l -> li_ (icon "fa-solid fa-check" >> span_ (toHtml (T.strip l)))
+
+    -- Isi satu kategori harga: paket, fitur, dan dua contoh proyek (mockup CSS).
+    priceTab :: Fields -> Html ()
+    priceTab it = do
+      div_ [class_ "pt-main"] $ do
+        div_ [class_ "pt-info"] $ do
+          txt it h3_ [class_ "pt-title"] "title" "Nama paket"
+          div_ [class_ "price-amount"] $ do
+            txt it strong_ [] "price" "Rp 0"
+            txt it span_ [class_ "muted"] "period" "/proyek"
+          txt it p_ [class_ "muted ml"] "text" "Deskripsi singkat"
+          actions (btnLink it "btn btn-lg" "btn" "href")
+        featureList it
+      div_ [class_ "pt-demos"] $ do
+        p_ [class_ "pt-demos-label"] "Contoh konsep proyek"
+        div_ [class_ "pt-demo-grid"] $
+          forM_ [("p1", "p1d", "p1img"), ("p2", "p2d", "p2img")] $ \(n, d, im) ->
+            when (edit || not (isBlank (fieldOf n it))) $
+              article_ [class_ "pt-demo"] $ do
+                mockup (fieldOf n it) im (fieldOf im it)
+                txt it h4_ [] n "Nama proyek"
+                txt it p_ [class_ "muted ml"] d "Keterangan proyek"
+
+    -- Jendela browser berisi gambar proyek. Tanpa gambar: kerangka tiruan yang
+    -- bentuknya diatur CSS per urutan kategori. Di editor gambar bisa diklik untuk diganti.
+    mockup :: Text -> Text -> Text -> Html ()
+    mockup name imField src = div_ [class_ "mock"] $ do
+      div_ [class_ "mock-bar", makeAttribute "aria-hidden" "true"] (i_ "" >> i_ "" >> i_ "" >> span_ (toHtml (domainOf name)))
+      if
+        | edit -> img_ [class_ "mock-shot", src_ (if T.null src then "/asset/img/placeholder.svg" else src), alt_ "", data_ "fa" (imField <> ":src")]
+        | not (T.null src) -> img_ [class_ "mock-shot", src_ src, alt_ ("Tampilan " <> name), makeAttribute "loading" "lazy", makeAttribute "decoding" "async"]
+        | otherwise ->
+            div_ [class_ "mock-body", makeAttribute "aria-hidden" "true"] $ do
+              div_ [class_ "mock-nav"] (bars 4)
+              div_ [class_ "mock-hero"] (bars 3)
+              div_ [class_ "mock-cards"] (bars 3)
+      where
+        bars :: Int -> Html ()
+        bars n = replicateM_ n (b_ "")
+        domainOf t = let d = T.filter isAlphaNum (T.toLower t) in (if T.null d then "contoh" else T.take 18 d) <> ".id"
+
     ico :: Fields -> Html ()
     ico m
       | edit = span_ [class_ "pb-ico", data_ "fa" "icon:data-icon", data_ "icon" v] (i_ [class_ v] "")
@@ -424,7 +532,7 @@ renderBlock edit pd b = case bType b of
       when (edit || any (not . isBlank . (`fieldOf` m)) ["eyebrow", "title", "text"]) $
         div_ [class_ "pb-heading"] $ do
           txt m p_ [class_ "eyebrow"] "eyebrow" "Label kecil"
-          txt m h2_ [] "title" "Judul bagian"
+          title m h2_ "Judul bagian"
           txt m p_ [class_ "pb-sub ml"] "text" "Keterangan (opsional)"
 
     -- Daftar item. Di mode edit ikut disertakan template item kosong untuk "Tambah item".
@@ -457,7 +565,11 @@ renderBlock edit pd b = case bType b of
             txt fs div_ [class_ "info-value ml"] name label
 
 postTile :: Post -> Html ()
-postTile p = article_ [class_ "pb-card post-tile"] $ do
+postTile = postTileWith []
+
+postTileWith :: [Attribute] -> Post -> Html ()
+postTileWith attrs p = article_ ([class_ "pb-card post-tile", data_ "cat" (fromMaybe "" (postCategorySlug p))] <> attrs) $ do
+  postCover p
   div_ [class_ "post-meta"] $ do
     forM_ (postCategoryName p) $ \n -> span_ [class_ "tag"] (toHtml n)
     span_ (toHtml (fmtDate (fromMaybe (postCreated p) (postPublished p))))

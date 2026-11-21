@@ -3,6 +3,7 @@ module CMS.DB where
 
 import Control.Concurrent.MVar
 import Control.Monad (forM_, void, when)
+import Data.List (nubBy)
 import Data.Maybe (catMaybes, fromMaybe, listToMaybe)
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
@@ -484,11 +485,16 @@ saveSettings c Settings {..} = withTransaction c $
 -- | Buat halaman bawaan yang belum ada (tidak menimpa yang sudah diedit).
 seedPages :: Connection -> IO ()
 seedPages c = do
+  -- Sekali saja, agar halaman bawaan yang sengaja dihapus tidak muncul lagi.
+  -- Home dan Blog selalu dipastikan ada.
+  seeded <- count1 c "SELECT COUNT(*) FROM settings WHERE key = 'pages_seeded'" ()
   forM_ (zip [1 :: Int ..] sitePages) $ \(i, sp) ->
-    execute
-      c
-      "INSERT OR IGNORE INTO pages (slug, title, blocks, menu_order, icon, created_at) VALUES (?,?,?,?,?, datetime('now'))"
-      (spSlug sp, spTitle sp, encodeBlocks (spDefaults sp), i, defaultPageIcon (spSlug sp))
+    when (seeded == 0 || isRequiredPage (spSlug sp)) $
+      execute
+        c
+        "INSERT OR IGNORE INTO pages (slug, title, blocks, menu_order, icon, created_at) VALUES (?,?,?,?,?, datetime('now'))"
+        (spSlug sp, spTitle sp, encodeBlocks (spDefaults sp), i, defaultPageIcon (spSlug sp))
+  execute_ c "INSERT OR IGNORE INTO settings (key, value) VALUES ('pages_seeded', '1')"
   -- Sekali saja: urutan & ikon menu halaman bawaan di database lama (sebelumnya tetap di kode).
   menuDone <- count1 c "SELECT COUNT(*) FROM settings WHERE key = 'pages_menu_v1'" ()
   when (menuDone == 0) $ withTransaction c $ do
@@ -523,6 +529,16 @@ listPages c = query_ c (pageSelect <> " ORDER BY menu_order, created_at, slug")
 listMenu :: Connection -> IO [(Text, Text, Text)]
 listMenu c =
   query_ c "SELECT slug, title, icon FROM pages WHERE status = 'published' AND in_menu = 1 ORDER BY menu_order, created_at, slug"
+
+-- | Kategori dari blok "Harga per kategori" di halaman terbit, untuk popup Hubungi.
+offerCategories :: Connection -> IO [(Text, Text)]
+offerCategories c = do
+  rows <- query_ c "SELECT blocks FROM pages WHERE status = 'published' AND blocks LIKE '%\"pricetabs\"%' ORDER BY menu_order"
+  pure $ nubBy (\a b -> fst a == fst b)
+    [ (tab, fieldOf "icon" it)
+    | Only raw <- rows, b <- decodeBlocks raw, bType b == "pricetabs", it <- bItems b
+    , let tab = T.strip (fieldOf "tab" it), not (T.null tab)
+    ]
 
 pageSlugTaken :: Connection -> Text -> IO Bool
 pageSlugTaken c s = (> 0) <$> count1 c "SELECT COUNT(*) FROM pages WHERE slug = ?" (Only s)

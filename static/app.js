@@ -250,6 +250,191 @@
     });
   }
 
+  // ---------- Angka (blok "Angka"): hitung naik saat terlihat ----------
+  // Hanya nilai bilangan bulat dengan akhiran tanpa angka ("120+", "1.500", "98%").
+  // Nilai seperti "24/7" dibiarkan apa adanya.
+  if (!document.body.classList.contains("pb-editing") && !reduceMotion && "IntersectionObserver" in window) {
+    var countIo = new IntersectionObserver(function (entries) {
+      entries.forEach(function (en) {
+        if (!en.isIntersecting) return;
+        countIo.unobserve(en.target);
+        var el = en.target, d = el._count, t0 = null;
+        var step = function (t) {
+          if (t0 === null) t0 = t;
+          var p = Math.min((t - t0) / 1400, 1), v = Math.round(d.n * (1 - Math.pow(1 - p, 3)));
+          el.textContent = d.pre + (d.sep ? String(v).replace(/\B(?=(\d{3})+(?!\d))/g, d.sep) : v) + d.suf;
+          if (p < 1) requestAnimationFrame(step);
+        };
+        requestAnimationFrame(step);
+      });
+    }, { threshold: 0.4 });
+    document.querySelectorAll(".pb-stat strong").forEach(function (el) {
+      var m = el.textContent.trim().match(/^(\D*?)(\d{1,3}(?:([.,])\d{3})+|\d+)(\D*)$/);
+      if (!m) return;
+      var n = parseInt(m[2].replace(/[.,]/g, ""), 10);
+      if (!(n > 0)) return;
+      el._count = { pre: m[1], n: n, sep: m[3] || "", suf: m[4] };
+      el.textContent = m[1] + "0" + m[4];
+      countIo.observe(el);
+    });
+  }
+
+  // ---------- Sorot kartu mengikuti kursor ----------
+  if (!document.body.classList.contains("pb-editing") && window.matchMedia("(hover: hover)").matches) {
+    document.addEventListener("pointermove", function (e) {
+      var card = e.target.closest && e.target.closest(".pb-card");
+      if (!card) return;
+      var r = card.getBoundingClientRect();
+      card.style.setProperty("--mx", (e.clientX - r.left) + "px");
+      card.style.setProperty("--my", (e.clientY - r.top) + "px");
+    }, { passive: true });
+  }
+
+  // Sorotan meluncur ke tab aktif (.pt-glider); di HP daftar tab ikut digeser.
+  function glide(list, t) {
+    var g = list.querySelector(".pt-glider");
+    list.classList.add("has-glider");
+    g.style.width = t.offsetWidth + "px";
+    g.style.height = t.offsetHeight + "px";
+    g.style.transform = "translate(" + t.offsetLeft + "px," + t.offsetTop + "px)";
+    if (list.scrollWidth > list.clientWidth) list.scrollTo({ left: t.offsetLeft - 16, behavior: "smooth" });
+  }
+
+  // ---------- Harga per kategori: tab dengan sorotan meluncur ----------
+  // Berganti otomatis tiap 7 detik selama terlihat (jeda saat kursor di atasnya);
+  // berhenti total begitu pengunjung memilih tab sendiri.
+  document.querySelectorAll("[data-pt]").forEach(function (pt, n) {
+    var list = pt.querySelector(".pt-tabs");
+    var tabs = Array.prototype.slice.call(pt.querySelectorAll(".pt-tab"));
+    var panels = pt.querySelectorAll(".pt-panel");
+    var cur = 0, visible = false, hover = false;
+    pt.classList.add("pt-js");
+
+    function show(i, focus) {
+      cur = i;
+      tabs.forEach(function (t, k) {
+        var on = k === i;
+        t.classList.toggle("is-active", on);
+        t.setAttribute("aria-selected", on ? "true" : "false");
+        t.tabIndex = on ? 0 : -1;
+        panels[k].hidden = !on;
+        panels[k].classList.toggle("is-active", on);
+      });
+      glide(list, tabs[i]);
+      if (focus) tabs[i].focus();
+    }
+    function pick(i, focus) {
+      pt.classList.remove("pt-auto");
+      show((i + tabs.length) % tabs.length, focus);
+    }
+    function sync() { pt.classList.toggle("pt-paused", !visible || hover); }
+
+    tabs.forEach(function (t, i) {
+      var id = "pt" + n + "-" + i;
+      t.id = id + "-tab";
+      t.setAttribute("aria-controls", id);
+      panels[i].id = id;
+      panels[i].setAttribute("aria-labelledby", t.id);
+      t.addEventListener("click", function () { pick(i, false); });
+      t.querySelector(".pt-prog").addEventListener("animationend", function () {
+        if (pt.classList.contains("pt-auto")) show((cur + 1) % tabs.length);
+      });
+    });
+    list.addEventListener("keydown", function (e) {
+      var step = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[e.key];
+      if (e.key === "Home") step = -cur;
+      if (e.key === "End") step = tabs.length - 1 - cur;
+      if (step === undefined) return;
+      e.preventDefault();
+      pick(cur + step, true);
+    });
+    window.addEventListener("resize", function () { show(cur); });
+    if (document.fonts) document.fonts.ready.then(function () { show(cur); });
+    show(0);
+
+    if (!reduceMotion && tabs.length > 1 && "IntersectionObserver" in window) {
+      pt.classList.add("pt-auto");
+      sync();
+      new IntersectionObserver(function (en) { visible = en[0].isIntersecting; sync(); }, { threshold: 0.35 }).observe(pt);
+      pt.addEventListener("mouseenter", function () { hover = true; sync(); });
+      pt.addEventListener("mouseleave", function () { hover = false; sync(); });
+    }
+  });
+
+  // ---------- Blog: tab kategori di kiri ----------
+  // [data-blog-tabs] = semua artikel sudah termuat, jadi kategori disaring di browser
+  // tanpa memuat ulang. Tanpa atribut itu tab berupa tautan biasa (disaring server).
+  document.querySelectorAll(".blog-cats").forEach(function (list) {
+    var tabs = Array.prototype.slice.call(list.querySelectorAll(".pt-tab"));
+    var active = function () { return list.querySelector(".pt-tab.is-active") || tabs[0]; };
+    var place = function () { glide(list, active()); };
+    place();
+    window.addEventListener("resize", place);
+    if (document.fonts) document.fonts.ready.then(place);
+    if (!list.hasAttribute("data-blog-tabs")) return;
+
+    var cards = Array.prototype.slice.call(document.querySelectorAll(".blog-grid > .post-tile"));
+    var empty = document.querySelector("[data-blog-empty]");
+    list.addEventListener("click", function (e) {
+      var t = e.target.closest(".pt-tab");
+      if (!t || e.metaKey || e.ctrlKey || e.shiftKey) return;
+      e.preventDefault();
+      var slug = t.getAttribute("data-cat"), n = 0;
+      tabs.forEach(function (x) {
+        var on = x === t;
+        x.classList.toggle("is-active", on);
+        if (on) x.setAttribute("aria-current", "page"); else x.removeAttribute("aria-current");
+      });
+      place();
+      cards.forEach(function (card) {
+        var on = !slug || card.getAttribute("data-cat") === slug;
+        card.hidden = !on;
+        card.classList.remove("blog-in");
+        if (!on) return;
+        card.style.animationDelay = Math.min(n++, 8) * 0.06 + "s";
+        void card.offsetWidth;
+        card.classList.add("blog-in");
+      });
+      empty.hidden = n > 0;
+      history.replaceState(null, "", t.getAttribute("href"));
+    });
+  });
+
+  // ---------- Popup Hubungi: formulir penawaran → pesan WhatsApp ----------
+  // Dibuka oleh [data-offer-open] (navigasi) dan tautan #hubungi. Tombol di blok harga
+  // per kategori memilih kategorinya otomatis.
+  var offer = document.getElementById("hubungi");
+  if (offer && typeof offer.showModal === "function" && !document.body.classList.contains("pb-editing")) {
+    var offerForm = offer.querySelector("[data-offer]");
+    var openOffer = function (kategori) {
+      offerForm.querySelectorAll('input[name="kategori"]').forEach(function (r) { r.checked = !!kategori && r.value === kategori; });
+      offer.showModal();
+      offerForm.querySelector('input[name="nama"]').focus();
+    };
+    document.addEventListener("click", function (e) {
+      var a = e.target.closest && e.target.closest('[data-offer-open], a[href="#hubungi"]');
+      if (!a) return;
+      e.preventDefault();
+      var panel = a.closest(".pt-panel");
+      var tab = panel && document.getElementById(panel.getAttribute("aria-labelledby"));
+      openOffer(tab ? tab.querySelector("strong").textContent.trim() : "");
+    });
+    offer.querySelector("[data-offer-close]").addEventListener("click", function () { offer.close(); });
+    offer.addEventListener("click", function (e) { if (e.target === offer) offer.close(); });
+    offerForm.addEventListener("submit", function (e) {
+      e.preventDefault();
+      var v = function (n) { var el = offerForm.elements[n]; return el ? (el.value || "").trim() : ""; };
+      var usaha = v("usaha");
+      var msg = "Halo " + offerForm.getAttribute("data-site") + ", saya " + v("nama") + (usaha ? " dari " + usaha : "") + ".\n\n" +
+        "Saya ingin mengajukan penawaran proyek:\n" +
+        "• Kategori: " + v("kategori") + "\n" +
+        "• Kebutuhan: " + (v("text") || "-") + "\n\nTerima kasih.";
+      window.open("https://wa.me/" + offerForm.getAttribute("data-offer") + "?text=" + encodeURIComponent(msg), "_blank", "noopener");
+      offer.close();
+      offerForm.reset();
+    });
+  }
+
   // ---------- Tombol kembali ke atas ----------
   var toTopBtn = document.querySelector("[data-totop]");
   if (toTopBtn) {

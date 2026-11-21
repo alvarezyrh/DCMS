@@ -72,7 +72,7 @@ pagesPage c u flt allPages shown = adminLayout c u "pages" "Halaman" $ do
                 else span_ [class_ "badge badge-draft"] "Draf"
               unless (pageInMenu p) $ span_ [class_ "badge badge-pending"] "Tidak di menu"
               when (seoNoindex (pageSeo p)) $ span_ [class_ "badge badge-draft"] "noindex"
-              when (isSystemPage slug) $ span_ [class_ "badge role-editor", title_ "Halaman bawaan: tidak bisa dihapus"] "Bawaan"
+              when (isRequiredPage slug) $ span_ [class_ "badge role-editor", title_ "Halaman wajib: tidak bisa dihapus"] "Wajib"
           td_ [class_ "mono"] (toHtml (pagePath slug))
           td_ (toHtml (show (length (pageBlocks p))))
           td_ (toHtml (fmtDate (pageUpdated p)))
@@ -86,7 +86,7 @@ pagesPage c u flt allPages shown = adminLayout c u "pages" "Halaman" $ do
                 unless (slug == "home") $
                   postBtn base "toggle" (if pagePublished p then "fa-solid fa-eye-slash" else "fa-solid fa-upload") (if pagePublished p then "Jadikan draf" else "Terbitkan") Nothing
                 postBtn base "duplicate" "fa-regular fa-copy" "Duplikat" Nothing
-                unless (isSystemPage slug) $
+                unless (isRequiredPage slug) $
                   postBtn base "delete" "fa-regular fa-trash-can" "Hapus" (Just ("Hapus halaman “" <> pageTitle p <> "” beserta isinya? Tindakan ini tidak bisa dibatalkan."))
   p_ [class_ "muted hint pages-note"] $ do
     icon "fa-solid fa-circle-info"
@@ -205,9 +205,9 @@ pageFormPage c u mPage others PageInput {..} errs =
             dt_ "Diperbarui" >> dd_ (toHtml (fmtDate (pageUpdated p)))
           a_ [href_ (pagePath (pageSlug p) <> "?edit=1"), target_ "_blank", rel_ "noopener", class_ "btn btn-block"] (icon "fa-solid fa-pen" >> "Edit isi di halaman")
           a_ [href_ (pagePath (pageSlug p)), target_ "_blank", rel_ "noopener", class_ "btn btn-ghost btn-block"] "Lihat di situs ↗"
-          unless (isSystemPage (pageSlug p)) $
+          unless (isRequiredPage (pageSlug p)) $
             button_ [type_ "submit", form_ "delete-form", class_ "btn btn-danger btn-block"] "Hapus halaman"
-    forM_ mPage $ \p -> unless (isSystemPage (pageSlug p)) $
+    forM_ mPage $ \p -> unless (isRequiredPage (pageSlug p)) $
       form_ [method_ "post", action_ ("/admin/pages/" <> pageSlug p <> "/delete"), id_ "delete-form", data_ "confirm" ("Hapus halaman “" <> pageTitle p <> "” beserta isinya?")] $
         csrfField c
   where

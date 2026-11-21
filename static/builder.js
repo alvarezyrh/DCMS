@@ -19,10 +19,14 @@
   var slug = body.getAttribute("data-page");
   var palette = document.querySelector("[data-palette]");
 
+  // Isian berisi URL gambar: dapat tombol "Unggah gambar".
+  var IMG_FIELDS = { src: 1, p1img: 1, p2img: 1 };
   var LABELS = {
     href: "Tautan tombol (URL)",
     href2: "Tautan tombol kedua (URL)",
     src: "URL gambar",
+    p1img: "Gambar proyek 1 (URL)",
+    p2img: "Gambar proyek 2 (URL)",
     alt: "Teks alternatif gambar",
     icon: "Ikon (kelas Font Awesome)",
     count: "Jumlah artikel (1–12)",
@@ -421,13 +425,13 @@
       if (field === "interval") { inp.min = 0; inp.max = 30; }
       if (field === "delay") { inp.min = 0; inp.max = 60; }
       if (field === "href" || field === "href2") inp.placeholder = "/contact atau https://…";
-      if (field === "src") inp.placeholder = "https://…/gambar.jpg";
+      if (IMG_FIELDS[field]) inp.placeholder = "https://…/gambar.jpg";
       inp.value = el.getAttribute(attr) || (opts ? opts[0][0] : "");
       inp.addEventListener(opts ? "change" : "input", function () { applyAttr(el, attr, isCode ? inp.value : inp.value.trim()); setDirty(true); });
       lab.appendChild(span);
       lab.appendChild(inp);
       pop.appendChild(lab);
-      if (field === "src") pop.appendChild(uploadRow(function (url) {
+      if (IMG_FIELDS[field]) pop.appendChild(uploadRow(function (url) {
         inp.value = url;
         applyAttr(el, attr, url);
         setDirty(true);

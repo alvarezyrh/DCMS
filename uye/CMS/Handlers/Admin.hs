@@ -585,7 +585,7 @@ pageMove c pg = do
 
 pageDelete :: Ctx -> Page -> IO Response
 pageDelete c pg
-  | isSystemPage (pageSlug pg) = redirectFlash "/admin/pages" "error" "Halaman bawaan tidak bisa dihapus. Sembunyikan dari menu atau jadikan draf."
+  | isRequiredPage (pageSlug pg) = redirectFlash "/admin/pages" "error" "Halaman Home dan Blog wajib ada dan tidak bisa dihapus."
   | otherwise = do
       withDb (cEnv c) $ \db -> deletePage db (pageSlug pg)
       redirectFlash "/admin/pages" "success" ("Halaman “" <> pageTitle pg <> "” dihapus.")

@@ -3,22 +3,34 @@ module CMS.Views.Layout where
 
 import Control.Applicative ((<|>))
 import Control.Monad (forM_, mfilter, unless, when)
-import Data.Maybe (isJust)
 import Data.Char (isAlphaNum)
 import qualified Data.Map.Strict as M
-import qualified Data.Text.Encoding as TE
-import Network.HTTP.Types.URI (urlEncode)
+import Data.Maybe (isJust)
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
 import Lucid
 import Lucid.Base (makeAttribute)
+import Network.HTTP.Types.URI (urlEncode)
 
 import CMS.Blocks (defaultPageIcon, pagePath)
 import CMS.NavStyle (fontLink, lightboxOn, navBottomOn, navCss, navFlag, navText, pageBoxOn, revealOn, siteLogo, toTopOn)
-import CMS.Util (isBlank)
-import CMS.Types
+import CMS.Seo (firstImage)
 import CMS.Static (staticUrl)
+import CMS.Types
+import CMS.Util (isBlank)
 import CMS.Web (paramT, siteOrigin, urlWith)
+
+-- | Gambar sampul artikel: gambar SEO, atau gambar pertama di isi artikel.
+postImage :: Post -> Maybe Text
+postImage p = if isBlank (seoImage (postSeo p)) then firstImage (postBody p) else Just (seoImage (postSeo p))
+
+-- | Sampul di kartu artikel (daftar blog & blok "Artikel terbaru").
+postCover :: Post -> Html ()
+postCover p =
+  forM_ (postImage p) $ \u ->
+    a_ [href_ ("/post/" <> postSlug p), class_ "post-cover", tabindex_ "-1", makeAttribute "aria-hidden" "true"] $
+      img_ [src_ u, alt_ "", makeAttribute "loading" "lazy", makeAttribute "decoding" "async"]
 
 siteName :: Ctx -> Text
 siteName = setSiteName . cSettings
@@ -153,6 +165,7 @@ siteLayoutMeta c active meta bodyAttrs content = doctypehtml_ $ do
     content
     siteFooter c
     floatingButtons c
+    unless (T.null (setWhatsapp (cSettings c))) (offerDialog c)
     -- Saat mengedit selalu dirender agar bisa dipratinjau walau sedang dimatikan.
     when (navBottomOn (setNav (cSettings c)) || editing) (tabBar c active)
   where
@@ -231,9 +244,6 @@ floatingButtons :: Ctx -> Html ()
 floatingButtons c = do
   let s = cSettings c
       wa = setWhatsapp s
-      waUrl =
-        "https://wa.me/" <> wa
-          <> if isBlank (setWaMessage s) then "" else "?text=" <> TE.decodeUtf8 (urlEncode True (TE.encodeUtf8 (setWaMessage s)))
       toTop = toTopOn (setNav s)
   when (not (T.null wa) || toTop) $
     div_ [class_ "fab-stack"] $ do
@@ -241,8 +251,45 @@ floatingButtons c = do
         button_ [type_ "button", class_ "fab totop", data_ "totop" "", title_ "Kembali ke atas", makeAttribute "aria-label" "Kembali ke atas", makeAttribute "hidden" ""] $
           icon "fa-solid fa-arrow-up"
       unless (T.null wa) $
-        a_ [href_ waUrl, target_ "_blank", rel_ "noopener", class_ "fab wa-fab", title_ "Chat WhatsApp", makeAttribute "aria-label" "Chat lewat WhatsApp"] $
+        a_ [href_ (waUrl s), target_ "_blank", rel_ "noopener", class_ "fab wa-fab", title_ "Chat WhatsApp", makeAttribute "aria-label" "Chat lewat WhatsApp"] $
           icon "fa-brands fa-whatsapp"
+
+-- | Tautan wa.me dengan pesan awal dari Pengaturan (bila diisi).
+waUrl :: Settings -> Text
+waUrl s =
+  "https://wa.me/" <> setWhatsapp s
+    <> if isBlank (setWaMessage s) then "" else "?text=" <> TE.decodeUtf8 (urlEncode True (TE.encodeUtf8 (setWaMessage s)))
+
+-- | Popup "Hubungi": formulir penawaran proyek yang dikirim sebagai pesan WhatsApp
+-- (static/app.js [data-offer]). Tanpa JavaScript, formulir tetap membuka wa.me.
+offerDialog :: Ctx -> Html ()
+offerDialog c =
+  term "dialog" [class_ "offer", id_ "hubungi", makeAttribute "aria-labelledby" "offer-title"] $
+    form_ [class_ "offer-form", method_ "get", action_ ("https://wa.me/" <> setWhatsapp s), target_ "_blank", data_ "offer" (setWhatsapp s), data_ "site" (siteName c)] $ do
+      button_ [type_ "button", class_ "offer-close", data_ "offer-close" "", makeAttribute "aria-label" "Tutup"] (icon "fa-solid fa-xmark")
+      div_ [class_ "offer-head"] $ do
+        span_ [class_ "offer-badge"] (icon "fa-brands fa-whatsapp")
+        h2_ [id_ "offer-title"] "Ajukan penawaran proyek"
+        p_ [class_ "muted"] "Isi singkat di bawah, lalu lanjutkan percakapan di WhatsApp."
+      div_ [class_ "offer-row"] $ do
+        field "Nama Anda" $ input_ [type_ "text", name_ "nama", required_ "required", makeAttribute "autocomplete" "name", maxlength_ "80"]
+        field "Usaha / instansi (opsional)" $ input_ [type_ "text", name_ "usaha", makeAttribute "autocomplete" "organization", maxlength_ "80"]
+      fieldset_ [class_ "offer-cats"] $ do
+        legend_ "Kategori proyek"
+        forM_ (zip [0 :: Int ..] (cOffer c <> [("Konsultasi / lainnya", "fa-regular fa-comments")])) $ \(i, (name, ic)) ->
+          label_ [class_ "offer-cat"] $ do
+            input_ ([type_ "radio", name_ "kategori", value_ name] <> [required_ "required" | i == 0])
+            span_ $ do
+              icon (if isBlank ic then "fa-solid fa-layer-group" else ic)
+              toHtml name
+      field "Ceritakan kebutuhan Anda" $
+        textarea_ [name_ "text", rows_ "4", maxlength_ "1000", placeholder_ "Contoh: website profil 5 halaman, ingin online bulan depan."] ""
+      button_ [type_ "submit", class_ "btn btn-lg offer-submit"] (icon "fa-brands fa-whatsapp" >> "Kirim lewat WhatsApp")
+      p_ [class_ "offer-note muted"] "Pesan dibuka di WhatsApp. Data tidak disimpan di situs ini."
+  where
+    s = cSettings c
+    field :: Text -> Html () -> Html ()
+    field lbl inner = label_ [class_ "offer-field"] (span_ (toHtml lbl) >> inner)
 
 -- | Header situs. Di HP menu halaman disembunyikan di balik tombol ☰ (panel turun,
 -- static/app.js [data-nav-toggle]); di layar lebar tampil sebagai kapsul menu.
@@ -257,9 +304,9 @@ siteHeader c active =
             icon (menuIcon slug ic)
             span_ (toHtml title)
       div_ [class_ "site-actions"] $ do
-        case cUser c of
-          Just _ -> a_ [href_ "/admin", class_ "btn btn-sm site-cta", title_ "Dashboard"] (icon "fa-solid fa-gauge-high" >> span_ [class_ "site-cta-label"] "Dashboard")
-          Nothing -> a_ [href_ "/login", class_ "btn btn-ghost btn-sm site-cta", title_ "Masuk"] (icon "fa-solid fa-arrow-right-to-bracket" >> span_ [class_ "site-cta-label"] "Masuk")
+        let s = cSettings c
+            (href, extra) = if T.null (setWhatsapp s) then ("/contact", []) else (waUrl s, [target_ "_blank", rel_ "noopener", data_ "offer-open" ""])
+        a_ ([href_ href, class_ "btn btn-sm site-cta", title_ "Hubungi"] <> extra) (icon "fa-brands fa-whatsapp" >> span_ [class_ "site-cta-label"] "Hubungi")
         button_
           [ type_ "button", class_ "nav-toggle", data_ "nav-toggle" ""
           , makeAttribute "aria-controls" "site-menu", makeAttribute "aria-expanded" "false", makeAttribute "aria-label" "Buka menu"

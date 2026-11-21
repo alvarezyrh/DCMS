@@ -319,6 +319,7 @@ data Ctx = Ctx
   , cFlash :: Maybe Flash
   , cSettings :: Settings
   , cMenu :: [(Text, Text, Text)] -- menu situs: (slug, judul, ikon) halaman terbit
+  , cOffer :: [(Text, Text)] -- kategori popup Hubungi: (nama, ikon) dari blok harga per kategori
   , cYear :: Text -- tahun berjalan (waktu lokal server), untuk {tahun} di footer
   }
 
