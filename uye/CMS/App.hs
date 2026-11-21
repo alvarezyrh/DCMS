@@ -4,14 +4,15 @@ module CMS.App (mkApp, seedIfEmpty) where
 import Control.Exception (SomeException, try)
 import Control.Monad (when)
 import qualified Data.ByteString as B
-import Data.Maybe (isJust)
+import Data.Maybe (isJust, listToMaybe)
 import Data.Text (Text)
-import Data.Time (getZonedTime, localDay, toGregorian, zonedTimeToLocalTime)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
+import Data.Time (getZonedTime, localDay, toGregorian, zonedTimeToLocalTime)
 import Database.SQLite.Simple (Connection)
 import Network.HTTP.Types
 import Network.Wai
+import Network.Wai.Middleware.Gzip (defaultGzipSettings, gzip)
 import Network.Wai.Parse
   ( defaultParseRequestBodyOptions
   , lbsBackEnd
@@ -23,7 +24,6 @@ import Network.Wai.Parse
   , setMaxRequestParmsSize
   , ParseRequestBodyOptions
   )
-import System.FilePath ((</>))
 import System.IO (hPutStrLn, stderr)
 import Web.Cookie (parseCookies)
 
@@ -34,28 +34,18 @@ import CMS.DB
 import qualified CMS.Handlers.Admin as Admin
 import qualified CMS.Handlers.Api as Api
 import qualified CMS.Handlers.Public as Public
+import CMS.Static (serveStatic)
 import CMS.Types
 import CMS.Upload (serveAsset)
 import CMS.Views.Layout (messagePage)
 import CMS.Web
 
 mkApp :: Env -> Application
-mkApp env req respond =
+mkApp env = gzip defaultGzipSettings $ \req respond ->
   case (requestMethod req, pathInfo req) of
-    ("GET", ["static", name]) -> respond (serveStatic env name)
+    ("GET", ["static", name]) -> respond (serveStatic (envStatic env) req name)
     ("GET", ["asset", "img", name]) -> serveAsset env name >>= respond
     _ -> handle env req >>= respond . securityHeaders env
-
-serveStatic :: Env -> Text -> Response
-serveStatic env name = case lookup name files of
-  Just ct -> responseFile status200 [(hContentType, ct), (hCacheControl, "no-cache")] (envStaticDir env </> T.unpack name) Nothing
-  Nothing -> responseLBS status404 [] "not found"
-  where
-    files =
-      [ ("style.css", "text/css; charset=utf-8")
-      , ("app.js", "text/javascript; charset=utf-8")
-      , ("builder.js", "text/javascript; charset=utf-8")
-      ]
 
 -- | Header keamanan untuk semua halaman. Bila situs berjalan di HTTPS (envSecure),
 -- semua cookie diberi atribut Secure dan browser diminta selalu memakai HTTPS (HSTS).
@@ -83,8 +73,9 @@ handle :: Env -> Request -> IO Response
 handle env req = do
   let method = requestMethod req
       cookies = maybe [] parseCookies (lookup hCookie (requestHeaders req))
-      cookieText k = TE.decodeUtf8Lenient <$> lookup k cookies
-      sessTok = mfilter' (not . T.null) (cookieText "sid")
+      -- Bisa ada beberapa cookie bernama sama (port/Path lain): coba semuanya.
+      cookieVals k = filter (not . T.null) [TE.decodeUtf8Lenient v | (n, v) <- cookies, n == k]
+      sidToks = cookieVals (sidCookie env)
       decode = map (\(k, v) -> (TE.decodeUtf8Lenient k, maybe "" TE.decodeUtf8Lenient v))
   parsed <-
     if method == methodPost
@@ -97,11 +88,13 @@ handle env req = do
           , False
           )
         Left (_ :: SomeException) -> ([], [], True)
-  (mUser, settings, menu) <- withDb env $ \db ->
-    (,,) <$> maybe (pure Nothing) (sessionUser db . hashToken) sessTok <*> getSettings db <*> listMenu db
-  (csrf, newCsrf) <- case mfilter' (\t -> T.length t == 64) (cookieText "csrf") of
-    Just t -> pure (t, False)
-    Nothing -> (\t -> (t, True)) <$> randomToken
+  (mSess, settings, menu) <- withDb env $ \db ->
+    (,,) <$> firstValidSession db sidToks <*> getSettings db <*> listMenu db
+  let mUser = snd <$> mSess
+      sessTok = maybe (listToMaybe sidToks) (Just . fst) mSess
+  (csrf, newCsrf) <- case filter ((== 64) . T.length) (cookieVals (csrfCookie env)) of
+    t : _ -> pure (t, False)
+    [] -> (\t -> (t, True)) <$> randomToken
   now <- getZonedTime
   let (year, _, _) = toGregorian (localDay (zonedTimeToLocalTime now))
   let flash = lookup "flash" cookies >>= decodeFlash
@@ -139,11 +132,16 @@ handle env req = do
       pure $ htmlResp status500 (messagePage ctx "Terjadi kesalahan" "Maaf, terjadi kesalahan pada server.")
   trackView ctx resp
   pure
-    . (if newCsrf then addHeader (cookieHeader "csrf" (TE.encodeUtf8 csrf) (Just (30 * 86400))) else id)
+    . (if newCsrf then addHeader (cookieHeader (csrfCookie env) (TE.encodeUtf8 csrf) (Just (30 * 86400))) else id)
     . (if isJust flash && not (setsCookie "flash" resp) then addHeader (clearCookie "flash") else id)
-    -- Sesi tidak valid/kedaluwarsa: hapus cookie-nya.
-    . (if isJust sessTok && not (isJust mUser) && not (setsCookie "sid" resp) then addHeader (clearCookie "sid") else id)
+    . (if isJust sessTok && not (isJust mUser) && not (setsCookie (sidCookie env) resp) then addHeader (clearCookie (sidCookie env)) else id)
     $ resp
+
+-- | Token sesi pertama yang masih valid, beserta penggunanya.
+firstValidSession :: Connection -> [Text] -> IO (Maybe (Text, User))
+firstValidSession _ [] = pure Nothing
+firstValidSession db (t : ts) =
+  sessionUser db (hashToken t) >>= maybe (firstValidSession db ts) (pure . Just . (,) t)
 
 -- | Batas isi request: 1 gambar maks. ~2 MB, isian form maks. 2 MB (JSON page builder).
 bodyLimits :: ParseRequestBodyOptions
@@ -154,11 +152,6 @@ bodyLimits =
     . setMaxRequestParmsSize (2 * 1024 * 1024)
     . setMaxRequestKeyLength 64
     $ defaultParseRequestBodyOptions
-
-mfilter' :: (a -> Bool) -> Maybe a -> Maybe a
-mfilter' p m = case m of
-  Just x | p x -> Just x
-  _ -> Nothing
 
 route :: Ctx -> IO Response
 route c = case (cMethod c, cPath c) of

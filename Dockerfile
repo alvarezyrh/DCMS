@@ -17,7 +17,7 @@ RUN cabal update
 COPY DCMS.cabal cabal.project.freeze ./
 RUN cabal build --only-dependencies lib:DCMS -j
 COPY app ./app
-COPY src ./src
+COPY uye ./uye
 RUN cabal build exe:DCMS -j \
  && mkdir -p /out \
  && cp "$(cabal list-bin DCMS)" /out/DCMS \
@@ -35,7 +35,7 @@ RUN apt-get update \
 WORKDIR /app
 COPY --from=build /out/DCMS /app/DCMS
 COPY static /app/static
-COPY src/asset/img/placeholder.svg /app/defaults/placeholder.svg
+COPY uye/asset/img/placeholder.svg /app/defaults/placeholder.svg
 COPY deploy/entrypoint.sh /app/entrypoint.sh
 ENV LANG=C.UTF-8 \
     CMS_PORT=3000 \

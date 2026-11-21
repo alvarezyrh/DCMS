@@ -5,6 +5,7 @@ import Control.Concurrent.MVar (MVar)
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
 import CMS.RateLimit (Limiter)
+import CMS.Static (StaticFiles)
 import qualified Data.Text as T
 import Database.SQLite.Simple (Connection)
 import Database.SQLite.Simple.FromField
@@ -287,8 +288,8 @@ defaultSettings = Settings "DCMS" "CMS sederhana yang ditulis dengan Haskell" Tr
 
 data Env = Env
   { envDb :: MVar Connection
-  , envStaticDir :: FilePath
-  , envAssetDir :: FilePath -- folder gambar (src/asset/img), disajikan di /asset/img/
+  , envStatic :: StaticFiles
+  , envAssetDir :: FilePath -- folder gambar (uye/asset/img), disajikan di /asset/img/
   , envDbPath :: FilePath
   , envStarted :: UTCTime -- waktu server mulai (untuk uptime)
   , envLimiter :: Limiter -- pembatas percobaan login

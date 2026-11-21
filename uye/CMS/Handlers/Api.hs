@@ -7,6 +7,7 @@ module CMS.Handlers.Api (apiRoute, apiPreflight, newApiKey) where
 
 import Control.Applicative ((<|>))
 import Control.Concurrent.MVar (modifyMVar)
+import Control.Monad (mfilter)
 import Data.Aeson
 import qualified Data.Aeson.Key as Key
 import Data.List (sortOn)
@@ -110,10 +111,7 @@ authenticate c conf api = case presented of
   where
     hdr n = T.strip . TE.decodeUtf8Lenient <$> lookup n (requestHeaders (cReq c))
     bearer = hdr "Authorization" >>= T.stripPrefix "Bearer " . T.strip
-    presented = mfilter' (not . T.null) (hdr "X-API-Key" <|> bearer <|> lookup "api_key" (cQuery c))
-    mfilter' p m = case m of
-      Just x | p x -> Just x
-      _ -> Nothing
+    presented = mfilter (not . T.null) (hdr "X-API-Key" <|> bearer <|> lookup "api_key" (cQuery c))
     allows key = let s = map T.strip (T.splitOn "," (akScopes key)) in "*" `elem` s || api `elem` s
 
 -- | Jendela tetap per menit: per API key, atau per IP untuk akses publik.

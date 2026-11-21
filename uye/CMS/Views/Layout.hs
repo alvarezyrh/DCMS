@@ -2,7 +2,7 @@
 module CMS.Views.Layout where
 
 import Control.Applicative ((<|>))
-import Control.Monad (forM_, unless, when)
+import Control.Monad (forM_, mfilter, unless, when)
 import Data.Maybe (isJust)
 import Data.Char (isAlphaNum)
 import qualified Data.Map.Strict as M
@@ -17,17 +17,17 @@ import CMS.Blocks (defaultPageIcon, pagePath)
 import CMS.NavStyle (fontLink, lightboxOn, navBottomOn, navCss, navFlag, navText, pageBoxOn, revealOn, siteLogo, toTopOn)
 import CMS.Util (isBlank)
 import CMS.Types
+import CMS.Static (staticUrl)
 import CMS.Web (paramT, siteOrigin, urlWith)
 
 siteName :: Ctx -> Text
 siteName = setSiteName . cSettings
 
-headCommon :: Text -> Html ()
-headCommon title = headWith title mempty
+headCommon :: Ctx -> Text -> Html ()
+headCommon c title = headWith c title mempty
 
--- | Seperti headCommon, dengan isi tambahan di akhir <head>.
-headWith :: Text -> Html () -> Html ()
-headWith title extra = head_ $ do
+headWith :: Ctx -> Text -> Html () -> Html ()
+headWith c title extra = head_ $ do
   meta_ [charset_ "utf-8"]
   meta_ [name_ "viewport", content_ "width=device-width, initial-scale=1"]
   title_ (toHtml title)
@@ -35,20 +35,12 @@ headWith title extra = head_ $ do
   link_ [rel_ "preconnect", href_ "https://fonts.gstatic.com", crossorigin_ ""]
   link_ [rel_ "stylesheet", href_ "https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800&display=swap"]
   link_ [rel_ "stylesheet", href_ "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css", crossorigin_ "anonymous", makeAttribute "referrerpolicy" "no-referrer"]
-  link_ [rel_ "stylesheet", href_ "/static/style.css?v=41"]
-  script_ [src_ "/static/app.js?v=23", defer_ "defer"] ("" :: Text)
+  link_ [rel_ "stylesheet", href_ (staticUrl (envStatic (cEnv c)) "style.css")]
+  script_ [src_ (staticUrl (envStatic (cEnv c)) "app.js"), defer_ "defer"] ("" :: Text)
   extra
 
 csrfField :: Ctx -> Html ()
 csrfField c = input_ [type_ "hidden", name_ "_csrf", value_ (cCsrf c)]
-
-logoutButton :: Ctx -> Html ()
-logoutButton c =
-  form_ [method_ "post", action_ "/logout", class_ "inline"] $ do
-    csrfField c
-    button_ [type_ "submit", class_ "btn btn-ghost btn-sm"] $ do
-      icon "fa-solid fa-right-from-bracket"
-      "Keluar"
 
 -- | Foto profil, atau huruf awal nama bila belum ada foto.
 avatar :: User -> Html ()
@@ -151,7 +143,7 @@ siteLayout c active title = siteLayoutMeta c active (defaultMeta c title)
 
 siteLayoutMeta :: Ctx -> Text -> PageMeta -> [Attribute] -> Html () -> Html ()
 siteLayoutMeta c active meta bodyAttrs content = doctypehtml_ $ do
-  headWith (pmTitle meta) $ do
+  headWith c (pmTitle meta) $ do
     seoMeta c meta (not editing)
     forM_ (fontLink nav) $ \u -> link_ [rel_ "stylesheet", href_ u, id_ "theme-font"]
     -- Selalu dirender (walau kosong) supaya builder bisa memperbaruinya untuk pratinjau.
@@ -179,7 +171,7 @@ seoMeta c meta tracking = do
       origin = siteOrigin c
       url = origin <> "/" <> T.intercalate "/" (cPath c)
       absolute u = if "/" `T.isPrefixOf` u && not ("//" `T.isPrefixOf` u) then origin <> u else u
-      image = fmap absolute (mfilter' (not . isBlank) (pmImage meta) <|> mfilter' (not . isBlank) (Just (ssDefaultImage ss)))
+      image = fmap absolute (mfilter (not . isBlank) (pmImage meta) <|> mfilter (not . isBlank) (Just (ssDefaultImage ss)))
   unless (T.null desc) $ do
     meta_ [name_ "description", content_ desc]
     meta_ [makeAttribute "property" "og:description", content_ desc]
@@ -202,10 +194,6 @@ seoMeta c meta tracking = do
   when (tracking && not (T.null (ssGaId ss))) $ do
     script_ [async_ "", src_ ("https://www.googletagmanager.com/gtag/js?id=" <> ssGaId ss)] ("" :: Text)
     script_ ("window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments)}gtag('js',new Date());gtag('config','" <> ssGaId ss <> "');" :: Text)
-  where
-    mfilter' p m = case m of
-      Just x | p x -> Just x
-      _ -> Nothing
 
 -- | Logo + nama situs ("[logo] DCMS"). Tanpa logo: penanda kotak kecil lewat CSS.
 brandLink :: Ctx -> Text -> Text -> Html ()
@@ -355,7 +343,7 @@ publicLayoutMeta c cats meta content =
 -- | Layout kartu di tengah: login, register, halaman pesan.
 authLayout :: Ctx -> Text -> Html () -> Html ()
 authLayout c title content = doctypehtml_ $ do
-  headCommon (title <> " · " <> siteName c)
+  headCommon c (title <> " · " <> siteName c)
   body_ [class_ "auth"] $
     main_ [class_ "auth-wrap"] $ do
       brandLink c "/" "brand auth-brand"
@@ -422,7 +410,7 @@ sideNav active items =
 
 adminLayout :: Ctx -> User -> Text -> Text -> Html () -> Html ()
 adminLayout c u active title content = doctypehtml_ $ do
-  headCommon (title <> " · Admin " <> siteName c)
+  headCommon c (title <> " · Admin " <> siteName c)
   body_ [class_ "admin"] $
     div_ [class_ "admin-shell"] $ do
       aside_ [class_ "sidebar"] $ do

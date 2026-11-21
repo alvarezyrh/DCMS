@@ -1,4 +1,4 @@
--- | Aset gambar: unggah, hapus, dan sajikan file dari folder aset (src/asset/img).
+-- | Aset gambar: unggah, hapus, dan sajikan file dari folder aset (uye/asset/img).
 module CMS.Upload
   ( saveImage
   , removeAsset

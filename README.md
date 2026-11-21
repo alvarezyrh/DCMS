@@ -89,8 +89,8 @@ Lupa password? Jalankan `cabal run DCMS -- reset-password admin` (atau di Docker
 |---|---|---|
 | `CMS_PORT` | `3000` | Port HTTP |
 | `CMS_DB` | `cms.db` | Lokasi file SQLite |
-| `CMS_STATIC` | `static` | Folder CSS/JS |
-| `CMS_ASSETS` | `src/asset/img` | Folder gambar (foto profil, gambar halaman), disajikan di `/asset/img/` |
+| `CMS_STATIC` | `static` | Folder CSS/JS. Dimuat ke memori saat start (komentar dibuang, gzip, versi otomatis dari hash isi), jadi **restart server setelah mengubah CSS/JS**. |
+| `CMS_ASSETS` | `uye/asset/img` | Folder gambar (foto profil, gambar halaman), disajikan di `/asset/img/` |
 | `CMS_ADMIN_PASSWORD` | `admin12345` di lokal, acak di HTTPS | Password admin awal (hanya saat seed, tidak dicetak ke log) |
 | `CMS_SITE_URL`, `CMS_TRUST_PROXY` | — | Untuk produksi, lihat di bawah |
 
@@ -101,32 +101,33 @@ Lupa password? Jalankan `cabal run DCMS -- reset-password admin` (atau di Docker
 
 ```
 app/Main.hs                  konfigurasi dari env, start server Warp, perintah reset-password
-src/CMS/Types.hs             tipe domain (User, Post, Branch, Settings, Ctx…), peran & izin
-src/CMS/DB.hs                skema, migrasi, seed, dan semua query SQLite
-src/CMS/App.hs               middleware (body, sesi, CSRF, header keamanan), routing, analitik, seed
-src/CMS/Web.hs               parameter form/query, respons, cookie, flash, redirect
-src/CMS/Auth.hs              bcrypt, token acak, hash token
-src/CMS/RateLimit.hs         batas percobaan login (per IP, akun, IP+akun)
-src/CMS/Blocks.hs            page builder: jenis blok, validasi, templat & halaman bawaan
-src/CMS/NavStyle.hs          Tampilan situs: Tema, Navigasi, Footer → variabel CSS
-src/CMS/Seo.hs               analisis & skor SEO artikel
-src/CMS/Analytics.hs         klasifikasi sumber kunjungan, deteksi bot
-src/CMS/Api.hs               katalog & konfigurasi API Gateway
-src/CMS/Upload.hs            unggah gambar (cek isi berkas) & sajikan /asset/img
-src/CMS/Status.hs            status server (CPU, RAM, disk, uptime) untuk dashboard
-src/CMS/BranchSeed.hs        data awal cabang
-src/CMS/Handlers/Public.hs   situs publik, login, register, sitemap, robots
-src/CMS/Handlers/Admin.hs    dashboard (semua menu /admin)
-src/CMS/Handlers/Api.hs      REST API /api/v1 + gateway (key, kuota, CORS)
-src/CMS/Views/Layout.hs      kerangka HTML situs & dashboard, header, footer, meta SEO
-src/CMS/Views/Site.hs        render blok halaman + mode edit (panel builder)
-src/CMS/Views/Public.hs      artikel, kategori, login, register
-src/CMS/Views/Admin.hs       dashboard, artikel, kategori, pengguna, profil, pengaturan
-src/CMS/Views/PageAdmin.hs   menu Halaman: daftar, buat baru, pengaturan
-src/CMS/Views/BranchAdmin.hs menu Cabang
-src/CMS/Views/SeoAdmin.hs    menu SEO & Analitik
-src/CMS/Views/ApiAdmin.hs    menu API Gateway
-src/CMS/Views/ApiDocs.hs     /api/docs & /api/openapi.json
+uye/CMS/Types.hs             tipe domain (User, Post, Branch, Settings, Ctx…), peran & izin
+uye/CMS/DB.hs                skema, migrasi, seed, dan semua query SQLite
+uye/CMS/App.hs               middleware (body, sesi, CSRF, header keamanan), routing, analitik, seed
+uye/CMS/Web.hs               parameter form/query, respons, cookie, flash, redirect
+uye/CMS/Auth.hs              bcrypt, token acak, hash token
+uye/CMS/RateLimit.hs         batas percobaan login (per IP, akun, IP+akun)
+uye/CMS/Blocks.hs            page builder: jenis blok, validasi, templat & halaman bawaan
+uye/CMS/NavStyle.hs          Tampilan situs: Tema, Navigasi, Footer → variabel CSS
+uye/CMS/Seo.hs               analisis & skor SEO artikel
+uye/CMS/Analytics.hs         klasifikasi sumber kunjungan, deteksi bot
+uye/CMS/Api.hs               katalog & konfigurasi API Gateway
+uye/CMS/Upload.hs            unggah gambar (cek isi berkas) & sajikan /asset/img
+uye/CMS/Static.hs            CSS/JS di memori: buang komentar, gzip, versi otomatis, cache
+uye/CMS/Status.hs            status server (CPU, RAM, disk, uptime) untuk dashboard
+uye/CMS/BranchSeed.hs        data awal cabang
+uye/CMS/Handlers/Public.hs   situs publik, login, register, sitemap, robots
+uye/CMS/Handlers/Admin.hs    dashboard (semua menu /admin)
+uye/CMS/Handlers/Api.hs      REST API /api/v1 + gateway (key, kuota, CORS)
+uye/CMS/Views/Layout.hs      kerangka HTML situs & dashboard, header, footer, meta SEO
+uye/CMS/Views/Site.hs        render blok halaman + mode edit (panel builder)
+uye/CMS/Views/Public.hs      artikel, kategori, login, register
+uye/CMS/Views/Admin.hs       dashboard, artikel, kategori, pengguna, profil, pengaturan
+uye/CMS/Views/PageAdmin.hs   menu Halaman: daftar, buat baru, pengaturan
+uye/CMS/Views/BranchAdmin.hs menu Cabang
+uye/CMS/Views/SeoAdmin.hs    menu SEO & Analitik
+uye/CMS/Views/ApiAdmin.hs    menu API Gateway
+uye/CMS/Views/ApiDocs.hs     /api/docs & /api/openapi.json
 static/style.css             tampilan situs & dashboard
 static/app.js                interaksi umum (menu HP, lightbox, popup, form, SEO langsung, dashboard)
 static/builder.js            page builder (edit di tempat, seret blok, panel Tampilan situs)
@@ -239,7 +240,7 @@ flowchart TD
 ```mermaid
 flowchart TD
     R(["Request masuk ke Warp"]) --> ST{"GET /static/:file?"}
-    ST -- ya --> STF["Kirim style.css / app.js / builder.js<br/>Cache-Control: no-cache"] --> Z(["Selesai"])
+    ST -- ya --> STF["Kirim style.css / app.js / builder.js dari memori<br/>gzip + ETag, cache 1 tahun bila ?v= cocok"] --> Z(["Selesai"])
     ST -- tidak --> AS{"GET /asset/img/:file?"}
     AS -- ya --> ASF["Kirim gambar unggahan<br/>CSP sandbox, nama divalidasi"] --> Z
     AS -- tidak --> P{"Metode POST?"}
@@ -816,7 +817,7 @@ Alternatif tanpa systemd: `cp .env.example .env` (isi), lalu `podman compose --p
 sudo systemctl stop dcms
 sudo podman volume create dcms-data
 sudo cp cms.db "$(sudo podman volume inspect dcms-data --format '{{.Mountpoint}}')/cms.db"
-sudo cp -r src/asset/img "$(sudo podman volume inspect dcms-data --format '{{.Mountpoint}}')/assets"
+sudo cp -r uye/asset/img "$(sudo podman volume inspect dcms-data --format '{{.Mountpoint}}')/assets"
 sudo systemctl start dcms     # pemilik berkas dirapikan otomatis saat kontainer mulai
 ```
 

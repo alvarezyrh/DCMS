@@ -1,26 +1,26 @@
 module Main (main) where
 
+import Control.Concurrent.MVar (newMVar, withMVar)
+import Control.Exception (bracket_)
+import Control.Monad (mfilter, void, when)
 import Data.Maybe (fromMaybe)
 import qualified Data.Text as T
-import Network.Wai.Handler.Warp (defaultSettings, runSettings, setGracefulShutdownTimeout, setHost, setInstallShutdownHandler, setPort)
-import System.Posix.Signals (Handler (Catch), installHandler, sigTERM)
-import Network.Wai.Middleware.RequestLogger (logStdout)
 import Data.Time.Clock (getCurrentTime)
+import Network.Wai.Handler.Warp (defaultSettings, runSettings, setGracefulShutdownTimeout, setHost, setInstallShutdownHandler, setPort)
+import Network.Wai.Middleware.RequestLogger (logStdout)
 import System.Directory (createDirectoryIfMissing)
 import System.Environment (getArgs, lookupEnv)
 import System.Exit (exitFailure)
-import Control.Exception (bracket_)
-import CMS.Auth (hashPassword)
-import CMS.DB (deleteUserSessions, findUserByLogin, updatePassword)
 import System.IO (BufferMode (..), hFlush, hIsTerminalDevice, hPutStrLn, hSetBuffering, hSetEcho, hSetEncoding, stderr, stdin, stdout, utf8)
+import System.Posix.Signals (Handler (Catch), installHandler, sigTERM)
 import Text.Read (readMaybe)
 
 import CMS.App (mkApp, seedIfEmpty)
+import CMS.Auth (hashPassword)
+import CMS.DB (deleteUserSessions, findUserByLogin, openDb, updatePassword)
 import CMS.RateLimit (newLimiter)
-import Control.Monad (mfilter, void, when)
-import CMS.DB (openDb)
+import CMS.Static (loadStatic)
 import CMS.Types (Env (..), User (..))
-import Control.Concurrent.MVar (newMVar, withMVar)
 
 main :: IO ()
 main = do
@@ -80,7 +80,7 @@ serve = do
   port <- fromMaybe 3000 . (>>= readMaybe) <$> lookupEnv "CMS_PORT"
   dbPath <- fromMaybe "cms.db" <$> lookupEnv "CMS_DB"
   staticDir <- fromMaybe "static" <$> lookupEnv "CMS_STATIC"
-  assetDir <- fromMaybe "src/asset/img" <$> lookupEnv "CMS_ASSETS"
+  assetDir <- fromMaybe "uye/asset/img" <$> lookupEnv "CMS_ASSETS"
   createDirectoryIfMissing True assetDir
   adminPw <- fmap T.pack . mfilter (not . null) <$> lookupEnv "CMS_ADMIN_PASSWORD"
   started <- getCurrentTime
@@ -96,7 +96,8 @@ serve = do
   putStrLn ("[config] alamat situs: " <> maybe "(dari header Host)" T.unpack siteUrl <> ", cookie Secure: " <> show secure <> ", percaya proxy: " <> show trustProxy)
   putStrLn ("DCMS berjalan di port " <> show port)
   apiCounter <- newMVar mempty
-  let app = logStdout (mkApp (Env db staticDir assetDir dbPath started limiter siteUrl secure trustProxy apiCounter))
+  static <- loadStatic staticDir
+  let app = logStdout (mkApp (Env db static assetDir dbPath started limiter siteUrl secure trustProxy apiCounter))
       -- "*6" = IPv6 + IPv4 (dual-stack). SIGTERM (podman stop / systemctl stop): berhenti menerima
       -- koneksi baru, selesaikan yang sedang berjalan (maks. 5 detik, di bawah batas 10 detik podman stop), lalu keluar.
       -- Tanpa ini, proses sebagai PID 1 di kontainer mengabaikan SIGTERM.

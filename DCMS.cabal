@@ -18,7 +18,7 @@ common shared
 
 library
   import:           shared
-  hs-source-dirs:   src
+  hs-source-dirs:   uye
   exposed-modules:
     CMS.RateLimit
     CMS.Types
@@ -32,6 +32,7 @@ library
     CMS.Auth
     CMS.Util
     CMS.Upload
+    CMS.Static
     CMS.Status
     CMS.Web
     CMS.Views.Layout
@@ -66,6 +67,7 @@ library
     , aeson              >=2.0
     , containers
     , directory
+    , zlib
 
 executable DCMS
   import:           shared

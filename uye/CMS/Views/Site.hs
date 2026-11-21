@@ -20,6 +20,7 @@ import Lucid.Base (makeAttribute)
 
 import CMS.Blocks
 import CMS.NavStyle
+import CMS.Static (staticUrl)
 import CMS.Types
 import CMS.Util
 import CMS.Views.Layout
@@ -56,7 +57,7 @@ pageView c pg edit pd extra =
       div_ [id_ "pb-canvas"] (mapM_ (renderBlock edit pd) (pageBlocks pg))
       extra
     if edit
-      then editorPalette (cSettings c) pd
+      then editorPalette c pd
       else when canEdit $
         a_ [href_ (pagePath (pageSlug pg) <> "?edit=1"), target_ "_blank", rel_ "noopener", class_ "pb-fab"] $ do
           icon "fa-solid fa-pen"
@@ -484,8 +485,9 @@ editorBar c pg =
       a_ [href_ (pagePath (pageSlug pg)), class_ "btn btn-ghost btn-sm"] (icon "fa-solid fa-eye" >> "Selesai")
       button_ [type_ "button", id_ "pb-save", class_ "btn btn-sm"] (icon "fa-solid fa-floppy-disk" >> "Simpan")
 
-editorPalette :: Settings -> PageData -> Html ()
-editorPalette st pd = do
+editorPalette :: Ctx -> PageData -> Html ()
+editorPalette c pd = do
+  let st = cSettings c
   aside_ [class_ "pb-palette", data_ "palette" ""] $ do
     h2_ "Tambah blok"
     p_ [class_ "muted"] "Seret blok ke halaman, atau klik untuk menambah di paling bawah."
@@ -502,7 +504,7 @@ editorPalette st pd = do
       p_ (icon "fa-regular fa-keyboard" >> " Ctrl+S untuk menyimpan.")
   forM_ blockSpecs $ \sp ->
     term "template" [data_ "tpl" (spType sp)] (renderBlock True pd (spDefault sp))
-  script_ [src_ "/static/builder.js?v=20", defer_ "defer"] ("" :: Text)
+  script_ [src_ (staticUrl (envStatic (cEnv c)) "builder.js"), defer_ "defer"] ("" :: Text)
 
 -- | Pengaturan tampilan situs (gaya, ukuran, logo, navigasi, footer). Nilai dibaca
 -- static/builder.js, dipratinjau langsung, dan ikut terkirim saat Simpan.

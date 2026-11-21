@@ -79,6 +79,15 @@ cookieHeader name val maxAge =
         }
   )
 
+-- | Di HTTPS memakai awalan __Host- (wajib Secure, Path=/, tanpa Domain) sehingga
+-- subdomain/aplikasi lain tidak bisa menanam cookie tiruan.
+sidCookie, csrfCookie :: Env -> ByteString
+sidCookie = hostCookie "sid"
+csrfCookie = hostCookie "csrf"
+
+hostCookie :: ByteString -> Env -> ByteString
+hostCookie name env = if envSecure env then "__Host-" <> name else name
+
 clearCookie :: ByteString -> Header
 clearCookie name = cookieHeader name "" (Just 0)
 

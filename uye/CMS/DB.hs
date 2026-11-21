@@ -672,9 +672,6 @@ listActiveBranches c = query_ c (branchSelect <> " WHERE active = 1 ORDER BY sor
 findBranch :: Connection -> Int -> IO (Maybe Branch)
 findBranch c i = listToMaybe <$> query c (branchSelect <> " WHERE id = ?") (Only i)
 
-countBranches :: Connection -> IO Int
-countBranches c = count1 c "SELECT COUNT(*) FROM branches WHERE active = 1" ()
-
 branchFields :: BranchInput -> [SQLData]
 branchFields BranchInput {..} =
   [ toField biName, toField biCity, toField biProvince, toField biAddress, toField biPhone, toField biPhone2
@@ -760,14 +757,6 @@ apiUsageByKey c days =
     (Only ("-" <> T.pack (show days) <> " days"))
 
 -- | Pemakaian per hari (semua API): (tanggal, berhasil, gagal).
-apiUsageByDay :: Connection -> Int -> IO [(Text, Int, Int)]
-apiUsageByDay c days =
-  query
-    c
-    "SELECT day, SUM(CASE WHEN status < 400 THEN hits ELSE 0 END), SUM(CASE WHEN status >= 400 THEN hits ELSE 0 END)\
-    \ FROM api_usage WHERE day > date('now','localtime', ?) GROUP BY day ORDER BY day"
-    (Only ("-" <> T.pack (show days) <> " days"))
-
 getApiConfig :: Connection -> IO Text
 getApiConfig c = maybe "" fromOnly . listToMaybe <$> query_ c "SELECT value FROM settings WHERE key = 'api_config'"
 

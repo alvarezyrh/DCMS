@@ -148,7 +148,7 @@ login c = do
                     mapM_ (deleteSession db . hashToken) (cSession c)
                     createSession db (hashToken tok) (userId u) sessionDays
                   pure
-                    . addHeader (cookieHeader "sid" (TE.encodeUtf8 tok) (Just (fromIntegral (sessionDays * 86400))))
+                    . addHeader (cookieHeader (sidCookie (cEnv c)) (TE.encodeUtf8 tok) (Just (fromIntegral (sessionDays * 86400))))
                     . withFlash "success" ("Selamat datang, " <> userShownName u <> "!")
                     $ redirectTo next
         Just _ -> bad "Username/email atau password salah."
@@ -160,7 +160,7 @@ login c = do
 logout :: Ctx -> IO Response
 logout c = do
   mapM_ (\t -> withDb (cEnv c) (`deleteSession` hashToken t)) (cSession c)
-  pure . addHeader (clearCookie "sid") . withFlash "info" "Anda telah keluar." $ redirectTo "/"
+  pure . addHeader (clearCookie (sidCookie (cEnv c))) . withFlash "info" "Anda telah keluar." $ redirectTo "/"
 
 -- Registrasi ------------------------------------------------------------------------
 

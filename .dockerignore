@@ -3,8 +3,8 @@ dist-newstyle/
 *.db
 *.db-wal
 *.db-shm
-src/asset/img/*
-!src/asset/img/placeholder.svg
+uye/asset/img/*
+!uye/asset/img/placeholder.svg
 .git/
 .env
 *.log
