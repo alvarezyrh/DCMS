@@ -18,15 +18,30 @@ database **SQLite**, HTML dari **Lucid**, password **bcrypt**, dan konten **Mark
   lain, lalu langsung diedit di page builder. Tiap halaman punya status **Terbit/Draf** (draf hanya terlihat staf,
   otomatis noindex), pilihan **tampil di menu** (atas, bawah, footer) dengan ikon menu, urutan menu (naik/turun),
   SEO sendiri (judul, deskripsi, gambar pratinjau, noindex + pratinjau Google), duplikat, ubah alamat, dan hapus.
-  Halaman bawaan tidak bisa dihapus dan alamatnya tetap. Halaman terbit otomatis masuk `sitemap.xml`.
+  Alamat halaman bawaan tetap; semua halaman bisa dihapus kecuali **Home** dan **Blog** (rute `/` dan `/blog`
+  bergantung padanya). Halaman bawaan hanya dibuat sekali, jadi yang dihapus tidak muncul lagi. Halaman terbit
+  otomatis masuk `sitemap.xml`.
 - **Kartu fitur**: 13 gaya (kartu, garis tepi, melayang, ikon di samping, tengah, minimalis, aksen atas/samping,
   bernomor, ikon penuh, gradasi, kaca, gelap), 2–4 kolom, bentuk sudut, dan bentuk ikon lewat chip "Gaya kartu".
 - **Blok siap pakai**: testimoni (rating bintang), FAQ (dengan data terstruktur Google), paket harga (paket
   unggulan disorot), tim, galeri, logo klien, dan video YouTube.
+- **Harga per kategori**: tab kategori vertikal dengan sorotan meluncur, ganti tab otomatis (berhenti saat
+  dipilih pengunjung), dan dua contoh proyek bergambar per kategori dalam bingkai browser.
+- **Keahlian (progress bar)**: daftar kemampuan dengan persentase, warna bar berbeda per item, dan bar yang
+  terisi saat terlihat.
+- **Foto potong**: foto berlatar transparan untuk hero (berdiri di dasar hero, lingkaran warna tema, dua label
+  melayang) dan untuk blok Gambar + teks (bentuk organik berputar pelan dan jejak kaki melayang).
+- **Teks sorot**: tulis `*kata*` di judul hero/bagian, kata itu tampil bergradasi warna tema.
 - **Gaya situs**: warna utama, 8 pilihan huruf, animasi muncul saat digulir, dan tombol kembali ke atas
   (panel Tampilan situs di editor).
-- **SEO & kontak**: deskripsi situs untuk Google dan pratinjau tautan (Open Graph), favicon otomatis, tombol
-  WhatsApp melayang, dan ikon media sosial di footer (menu Pengaturan).
+- **SEO & kontak**: deskripsi situs untuk Google dan pratinjau tautan (Open Graph), favicon otomatis, dan ikon
+  media sosial di footer (menu Pengaturan).
+- **Popup WhatsApp**: bila nomor WhatsApp diisi di Pengaturan, tombol **Hubungi** di navigasi membuka formulir
+  penawaran proyek (kategori diambil otomatis dari blok Harga per kategori; tombol paket memilih kategorinya), dan
+  tombol WhatsApp melayang membuka formulir **Layanan pelanggan**. Isian disusun jadi pesan WhatsApp; tidak ada
+  data yang disimpan di situs.
+- **Blog**: tab kategori di kiri (berganti tanpa memuat ulang selama semua artikel muat satu halaman; tautan
+  `/blog?kategori=slug` bisa dibagikan), pencarian, dan gambar sampul artikel di kartu Blog & beranda.
 - **SEO artikel**: kata kunci utama, judul SEO, deskripsi meta, gambar pratinjau, dan noindex per artikel, dengan
   pratinjau hasil Google dan skor SEO langsung (12 pemeriksaan) saat menulis. Halaman artikel otomatis memuat
   meta Open Graph, canonical, dan data terstruktur BlogPosting.
@@ -51,8 +66,11 @@ database **SQLite**, HTML dari **Lucid**, password **bcrypt**, dan konten **Mark
   menutup). Bisa dimatikan di panel Tampilan situs.
 - **Blok Kode custom**: HTML, CSS, dan JavaScript sendiri di page builder. Dijalankan di iframe sandbox
   (terpisah dari situs), jadi skripnya tidak bisa membaca sesi login atau memakai hak akses admin.
-- **Keamanan**: proteksi CSRF di semua form POST, cookie HttpOnly + SameSite, HTML mentah di Markdown dibuang,
-  cegah open redirect, header keamanan, user dinonaktifkan langsung keluar.
+- **Keamanan**: proteksi CSRF di semua form POST, cookie HttpOnly + SameSite (awalan `__Host-` di HTTPS), HTML
+  mentah di Markdown dibuang, cegah open redirect, header keamanan, user dinonaktifkan langsung keluar.
+- **Cepat**: CSS/JS dimuat ke memori saat start, dikirim terkompresi gzip dengan versi otomatis dari hash isi dan
+  cache browser 1 tahun; halaman HTML ikut gzip; animasi hanya `transform`/`opacity` (60 fps) dan mati bila
+  pengunjung memilih "kurangi gerakan".
 
 ## Peran
 
@@ -67,7 +85,8 @@ atau menurunkan peran akunnya sendiri.
 
 ## Menjalankan
 
-Butuh GHC ≥ 9.4 dan cabal (mis. lewat [ghcup](https://www.haskell.org/ghcup/)).
+Butuh **GHC 9.10.3** dan cabal (mis. lewat [ghcup](https://www.haskell.org/ghcup/)). Versi GHC ini dikunci oleh
+`cabal.project.freeze` (`base ==4.20.2.0`), jadi versi lain akan gagal saat resolusi dependensi.
 
 ```bash
 cabal run DCMS
@@ -248,7 +267,7 @@ flowchart TD
     PB --> TB{"Terlalu besar?"}
     TB -- ya --> E413["413 Berkas terlalu besar"]
     P -- tidak --> LD
-    TB -- tidak --> LD["Baca cookie: sid, csrf, flash"]
+    TB -- tidak --> LD["Baca cookie: sid (semua, pakai yang valid), csrf, flash"]
     LD --> DBQ["Satu akses DB:<br/>user dari sesi (hash SHA-256 token)<br/>+ pengaturan situs + menu halaman"]
     DBQ --> CTX["Bangun Ctx:<br/>user, form, query, berkas, csrf,<br/>flash, settings, menu, tahun"]
     CTX --> CS{"POST dan _csrf<br/>≠ cookie csrf?"}
@@ -315,12 +334,12 @@ flowchart TD
     end
 
     subgraph BODY["&lt;body data-lightbox data-reveal data-page-box&gt;"]
-        B1["Header: logo website + menu (cMenu)<br/>+ tombol Masuk/Dashboard + ☰ di HP"]
+        B1["Header: logo website + menu (cMenu)<br/>+ tombol Hubungi (popup WhatsApp) + ☰ di HP"]
         B2["Bar editor + panel blok & Tampilan situs<br/>(hanya mode edit)"]
         B3["Banner draf (hanya staf, bukan mode edit)"]
         B4["main#pb-canvas: renderBlock untuk tiap blok"]
         B5["Footer: logo, teks, menu, sosial, hak cipta {tahun}"]
-        B6["Tombol WhatsApp & kembali ke atas"]
+        B6["Tombol WhatsApp (popup layanan pelanggan)<br/>& kembali ke atas"]
         B7["Menu bawah (6 halaman pertama)"]
     end
 
@@ -349,7 +368,7 @@ flowchart TD
     AC -- tidak --> OFF["401 akun dinonaktifkan"]
     AC -- ya --> OK["Hapus catatan gagal<br/>hapus sesi kedaluwarsa & sesi lama"]
     OK --> TK["Token acak 256-bit<br/>DB simpan SHA-256 token"]
-    TK --> CO["Set-Cookie sid (HttpOnly, SameSite=Lax,<br/>Secure di HTTPS) + flash 'Selamat datang'"]
+    TK --> CO["Set-Cookie sid (HttpOnly, SameSite=Lax;<br/>__Host-sid + Secure di HTTPS) + flash 'Selamat datang'"]
     CO --> NX["303 → next (hanya path lokal)<br/>atau /admin"]
 
     REG(["POST /register"]) --> RA{"Registrasi diizinkan<br/>di Pengaturan?"}
@@ -454,7 +473,7 @@ flowchart TD
         K1["▲▼ ubah urutan menu (nomori ulang 1..n)"]
         K2["Terbitkan / jadikan draf (Beranda selalu terbit)"]
         K3["Duplikat → draf '-salinan', tidak di menu"]
-        K4["Hapus (halaman bawaan tidak bisa)"]
+        K4["Hapus (kecuali Home & Blog)"]
         K5["Pengaturan: ubah judul, alamat (bukan bawaan), menu, ikon, SEO"]
     end
 ```
@@ -661,7 +680,7 @@ Isi penting tabel `settings`:
 | Kunci | Isi |
 |---|---|
 | `site_name`, `tagline`, `description`, `per_page`, `allow_register` | identitas & perilaku situs (menu Pengaturan) |
-| `whatsapp`, `wa_message`, `social_*` | tombol WhatsApp & ikon media sosial |
+| `whatsapp`, `wa_message`, `social_*` | nomor untuk popup Hubungi & Layanan pelanggan, ikon media sosial |
 | `logo` | logo dashboard (juga cadangan logo website & favicon) |
 | `seo_google`, `seo_bing`, `seo_ga`, `seo_image`, `seo_index` | integrasi menu SEO |
 | `nav_style` | JSON Tampilan situs dari page builder: Tema (warna, latar body & halaman, huruf, lebar, logo website), Navigasi (warna bersama, menu atas & bawah), Footer (isi, warna, ukuran, melayang, sudut) |
@@ -677,7 +696,7 @@ flowchart TD
     AR -- tidak ada --> ENV["Baca env: CMS_PORT, CMS_DB, CMS_STATIC, CMS_ASSETS,<br/>CMS_SITE_URL, CMS_TRUST_PROXY, CMS_ADMIN_PASSWORD"]
     ENV --> OD["openDb: foreign_keys ON, WAL"]
     OD --> MG["migrate: CREATE TABLE IF NOT EXISTS<br/>+ ALTER TABLE kolom baru (avatar, SEO, status halaman …)<br/>+ data awal cabang + migrasi sekali jalan"]
-    MG --> SP["seedPages: halaman bawaan (Home, About, Services,<br/>Branch, Blog, Contact) bila belum ada"]
+    MG --> SP["seedPages: halaman bawaan (Home, About, Services,<br/>Branch, Blog, Contact) sekali saja;<br/>Home & Blog selalu dipastikan ada"]
     SP --> SE{"Belum ada pengguna?"}
     SE -- ya --> AD["Buat admin + kategori + artikel contoh"]
     SE -- tidak --> RUN
@@ -688,7 +707,7 @@ flowchart TD
 
 | Metode | Path | Akses |
 |---|---|---|
-| GET | `/`, `/post/:slug`, `/category/:slug` | publik |
+| GET | `/`, `/blog` (`?kategori=`, `?q=`, `?page=`), `/post/:slug`, `/category/:slug` | publik |
 | GET/POST | `/login`, `/register`; POST `/logout` | publik |
 | GET | `/admin` | login |
 | GET/POST | `/admin/posts`, `/admin/posts/new`, `/admin/posts/:id/edit`, `/admin/posts/:id`, `/admin/posts/:id/delete` | login (User: milik sendiri) |
@@ -711,11 +730,16 @@ Semua pengaturan produksi lewat variabel lingkungan:
 | `CMS_DB`, `CMS_ASSETS`, `CMS_STATIC`, `CMS_PORT` | Lokasi database, folder gambar, folder statis, dan port. |
 | `CMS_COOKIE_SECURE=0/1` | Paksa atribut `Secure` cookie (biasanya tidak perlu, ikut `CMS_SITE_URL`). |
 
+> Server mendengarkan di **semua alamat** pada `CMS_PORT`. Di server publik, jangan buka port itu ke internet:
+> taruh di balik reverse proxy HTTPS (Caddy/Nginx) dan tutup port 3000 di firewall.
+
 ### Keamanan bawaan
 
 - Password bcrypt (cost 11); token sesi acak 256-bit, disimpan sebagai hash SHA-256; sesi dihapus saat
   logout, ganti password, atau perubahan peran.
-- Cookie `HttpOnly` + `SameSite=Lax` (+ `Secure` di HTTPS); token CSRF di semua form POST.
+- Cookie `HttpOnly` + `SameSite=Lax`; di HTTPS bernama `__Host-sid`/`__Host-csrf` + `Secure` sehingga subdomain atau
+  aplikasi lain tidak bisa menanam cookie tiruan. Bila browser mengirim beberapa cookie sesi, yang valid yang dipakai.
+  Token CSRF di semua form POST.
 - **Batas percobaan login**: 5 salah per IP+akun, 10 per akun, 30 per IP dalam 15 menit → dikunci sementara (429).
 - Markdown membuang HTML mentah dan tautan `javascript:`; semua teks di-escape oleh Lucid.
 - Unggahan dicek dari isi berkas (JPG/PNG/WebP/GIF, maks. 2 MB), nama acak, SVG ditolak; folder aset
@@ -724,6 +748,43 @@ Semua pengaturan produksi lewat variabel lingkungan:
 - Header: `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, `Content-Security-Policy`
   (object/base/frame-ancestors), `Permissions-Policy`, `Cross-Origin-Opener-Policy`, dan HSTS di HTTPS.
 - Pembatasan peran diperiksa di server (User tidak bisa menerbitkan, mengedit milik orang lain, atau membuka menu staf).
+
+## Memilih hosting
+
+DCMS adalah **satu program (binary) Haskell** yang berjalan terus dan menyimpan data di **file SQLite**. Jadi
+hosting yang dibutuhkan harus bisa menjalankan program sendiri dan punya disk yang awet.
+
+| Jenis hosting | Bisa? | Keterangan |
+|---|---|---|
+| Shared hosting / cPanel (hosting PHP biasa) | **Tidak** | Hanya menjalankan PHP; tidak bisa menjalankan program yang terus menyala di port sendiri. |
+| **VPS** (IDCloudHost, Biznet Gio, Niagahoster VPS, DigitalOcean, Vultr, dll.) | **Ya, disarankan** | Pilih Ubuntu 24.04 / Debian 12. Pakai [Docker](#menjalankan-dengan-docker) atau [tanpa Docker](#deploy-di-vps-tanpa-docker-systemd--caddy). |
+| Cloud VM (AWS EC2, GCP, Azure) | Ya | Sama seperti VPS; contoh lengkap di [Podman di AWS](#deploy-dengan-podman-di-aws). |
+| Platform tanpa disk tetap (Heroku, Vercel, Netlify, App Runner, Fargate) | Tidak | Database SQLite hilang setiap kali restart. |
+
+Spesifikasi minimum untuk **menjalankan**: 1 vCPU, 1 GB RAM, disk 10 GB. Untuk **mem-build** (kompilasi GHC)
+butuh ±3 GB RAM, baik tanpa Docker maupun saat build image Docker. Pada VPS 1–2 GB, tambahkan swap dulu
+(langkah 1 di [panduan tanpa Docker](#deploy-di-vps-tanpa-docker-systemd--caddy)).
+
+**Domain**: arahkan A record domain (dan `www`) ke IP server **sebelum** menyalakan HTTPS, karena sertifikat
+Let's Encrypt diminta otomatis saat pertama diakses.
+
+### Memindahkan isi situs dari komputer lokal
+
+Isi situs (halaman, artikel, pengaturan, akun) ada di **`cms.db`**, dan gambar ada di folder **`uye/asset/img`**
+(foto, sampul blog, mockup proyek, unggahan). Keduanya **tidak ikut** di image Docker maupun hasil build, jadi
+salin sendiri ke server:
+
+1. Hentikan server lokal (agar isi database tersimpan utuh), lalu salin `cms.db` beserta `cms.db-wal` dan
+   `cms.db-shm` bila ada.
+2. Salin seluruh isi `uye/asset/img/` ke folder gambar di server (`CMS_ASSETS`).
+3. Atur `CMS_SITE_URL` sesuai domain baru. Ganti password admin bila database lokal memakai password sederhana.
+
+Contoh dari komputer lokal ke VPS (sesuaikan alamat server):
+
+```bash
+rsync -av cms.db* root@IP-SERVER:/root/dcms-data/
+rsync -av uye/asset/img/ root@IP-SERVER:/root/dcms-data/assets/
+```
 
 ## Menjalankan dengan Docker
 
@@ -757,6 +818,16 @@ docker cp cms.db dcms:/data/cms.db && docker restart dcms   # pakai database lam
 docker compose exec -u 10001 dcms /app/DCMS reset-password admin  # lupa password (diketik)
 docker run --rm -v dcms-data:/data -v "$PWD":/backup debian:bookworm-slim \
   tar czf /backup/dcms-$(date +%F).tar.gz -C /data .        # backup volume
+```
+
+**Memakai isi situs dari komputer lokal** (database + gambar, lihat [Memindahkan isi situs](#memindahkan-isi-situs-dari-komputer-lokal)).
+Di dalam kontainer database ada di `/data/cms.db` dan gambar di `/data/assets`:
+
+```bash
+docker compose stop dcms
+docker cp cms.db dcms:/data/cms.db
+docker cp uye/asset/img/. dcms:/data/assets/
+docker compose start dcms       # pemilik berkas dirapikan otomatis saat kontainer mulai
 ```
 
 Ingin memakai folder host sebagai data? Ganti `dcms-data:/data` di `docker-compose.yml` dengan mis.
@@ -849,3 +920,147 @@ tersebut, jadi biasanya tidak perlu apa-apa. Bila tetap muncul `attempt to write
 - SELinux (Fedora/RHEL) dengan folder host: tambahkan `:Z`, mis. `-v /srv/dcms:/data:Z`.
 - Pesan `Read-only file system` saat menulis ke luar `/data` itu disengaja (root filesystem hanya-baca);
   semua data aplikasi memang disimpan di `/data`.
+
+## Deploy di VPS tanpa Docker (systemd + Caddy)
+
+Cara paling ringan untuk VPS kecil: program DCMS dijalankan langsung oleh systemd, dan **Caddy** menjadi reverse
+proxy dengan HTTPS otomatis. Contoh untuk **Ubuntu 24.04 / Debian 12**, domain `contoh.id`; jalankan sebagai root
+(atau dengan `sudo`).
+
+**1. Siapkan server**
+
+```bash
+apt update && apt install -y git curl build-essential pkg-config libgmp-dev zlib1g-dev libffi-dev libncurses-dev caddy ufw
+ufw allow OpenSSH && ufw allow 80 && ufw allow 443 && ufw enable   # port 3000 tetap tertutup
+# RAM 1–2 GB? tambahkan swap supaya build GHC tidak kehabisan memori:
+fallocate -l 4G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile
+echo '/swapfile none swap sw 0 0' >> /etc/fstab
+```
+
+**2. Pasang GHC & build DCMS**
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://get-ghcup.haskell.org | \
+  BOOTSTRAP_HASKELL_NONINTERACTIVE=1 BOOTSTRAP_HASKELL_GHC_VERSION=9.10.3 sh   # versi dikunci cabal.project.freeze
+source ~/.ghcup/env
+git clone https://github.com/alvarezyrh/DCMS.git /opt/dcms-src && cd /opt/dcms-src
+cabal update && cabal build exe:DCMS          # build pertama cukup lama (unduh & kompilasi dependensi)
+```
+
+Build sebaiknya dilakukan **di server itu sendiri**: binary hasil build di komputer lain (mis. Fedora) belum tentu
+cocok dengan versi pustaka sistem di server.
+
+**3. Pasang program & data**
+
+```bash
+useradd --system --home /var/lib/dcms --shell /usr/sbin/nologin dcms
+mkdir -p /opt/dcms /var/lib/dcms/assets
+cp "$(cabal list-bin exe:DCMS)" /opt/dcms/DCMS
+cp -r static /opt/dcms/static
+cp uye/asset/img/placeholder.svg /var/lib/dcms/assets/
+# Opsional: isi situs dari komputer lokal (lihat "Memindahkan isi situs")
+# cp /root/dcms-data/cms.db* /var/lib/dcms/ && cp -r /root/dcms-data/assets/. /var/lib/dcms/assets/
+chown -R dcms:dcms /var/lib/dcms
+```
+
+**4. Konfigurasi & layanan systemd**
+
+```bash
+mkdir -p /etc/dcms
+cat > /etc/dcms/dcms.env <<'ENV'
+CMS_PORT=3000
+CMS_DB=/var/lib/dcms/cms.db
+CMS_ASSETS=/var/lib/dcms/assets
+CMS_STATIC=/opt/dcms/static
+CMS_SITE_URL=https://contoh.id
+CMS_TRUST_PROXY=1
+CMS_ADMIN_PASSWORD=ganti-dengan-password-kuat
+ENV
+chmod 600 /etc/dcms/dcms.env
+
+cat > /etc/systemd/system/dcms.service <<'UNIT'
+[Unit]
+Description=DCMS
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=dcms
+Group=dcms
+EnvironmentFile=/etc/dcms/dcms.env
+ExecStart=/opt/dcms/DCMS
+Restart=on-failure
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/dcms
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+systemctl daemon-reload && systemctl enable --now dcms
+journalctl -u dcms -n 20      # cek "DCMS berjalan di port 3000" dan "cookie Secure: True"
+```
+
+`CMS_ADMIN_PASSWORD` hanya dipakai saat database **baru** dibuat. Bila Anda memindahkan `cms.db` lama, akun dan
+password lamanya yang berlaku.
+
+**5. HTTPS dengan Caddy**
+
+```bash
+cat > /etc/caddy/Caddyfile <<'CADDY'
+contoh.id {
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:3000
+	request_body {
+		max_size 4MB
+	}
+}
+
+www.contoh.id {
+	redir https://contoh.id{uri} permanent
+}
+CADDY
+systemctl reload caddy
+```
+
+Buka `https://contoh.id`, login di `https://contoh.id/login` (navigasi situs sengaja tidak menampilkan tombol
+masuk), lalu:
+
+- Ganti password admin di menu **Profil**.
+- Isi nomor WhatsApp di **Pengaturan** agar tombol Hubungi dan Layanan pelanggan aktif.
+- Kirim `https://contoh.id/sitemap.xml` ke Google Search Console (menu **SEO & Analitik → Integrasi**).
+
+**6. Update aplikasi**
+
+```bash
+cd /opt/dcms-src && git pull && cabal build exe:DCMS
+install -m 755 "$(cabal list-bin exe:DCMS)" /opt/dcms/DCMS
+rm -rf /opt/dcms/static && cp -r static /opt/dcms/static
+systemctl restart dcms        # CSS/JS dimuat ulang saat start
+```
+
+**7. Backup harian**
+
+```bash
+mkdir -p /var/backups/dcms
+cat > /etc/cron.daily/dcms-backup <<'CRON'
+#!/bin/sh
+# Database disalin lewat SQLite agar tetap utuh walau server sedang berjalan.
+sqlite3 /var/lib/dcms/cms.db ".backup /var/backups/dcms/cms-$(date +%F).db"
+tar czf /var/backups/dcms/assets-$(date +%F).tar.gz -C /var/lib/dcms assets
+find /var/backups/dcms -mtime +14 -delete
+CRON
+chmod 755 /etc/cron.daily/dcms-backup && apt install -y sqlite3
+```
+
+Salin juga folder `/var/backups/dcms` ke tempat lain (mis. penyimpanan objek atau komputer Anda) secara berkala.
+
+**Pemecahan masalah**
+
+- `journalctl -u dcms -f` menampilkan log aplikasi; `journalctl -u caddy -f` untuk HTTPS.
+- Situs tidak bisa dibuka tetapi `curl http://127.0.0.1:3000` berhasil: periksa DNS domain dan `ufw status`.
+- `attempt to write a readonly database`: jalankan `chown -R dcms:dcms /var/lib/dcms`.
+- Tampilan tidak berubah setelah update CSS/JS: pastikan folder `static` sudah disalin ulang lalu `systemctl restart dcms`.
