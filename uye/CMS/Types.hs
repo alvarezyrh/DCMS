@@ -147,46 +147,33 @@ instance FromRow Post where
       <*> field <*> field <*> field <*> field <*> field <*> field <*> field
       <*> (PostSeo <$> field <*> field <*> field <*> field <*> field)
 
--- | Cabang/outlet (menu Cabang di dashboard, tampil di halaman /branch).
-data Branch = Branch
-  { brId :: Int
-  , brName :: Text -- nama outlet, mis. "Pondok Indah"
-  , brCity :: Text -- kota/wilayah, mis. "Jakarta Selatan"
-  , brProvince :: Text
-  , brAddress :: Text
-  , brPhone :: Text
-  , brPhone2 :: Text
-  , brWhatsapp :: Text -- nomor WA format internasional tanpa "+"; kosong = dari telepon
-  , brHours :: Text -- mis. "10.00–21.00 WIB"
-  , brNote :: Text -- mis. "Buka setiap hari"
-  , brMapsUrl :: Text -- tautan "Petunjuk arah" (Google Maps)
-  , brMapsQuery :: Text -- kata kunci peta untuk sematan, mis. "Raja Emas Pondok Indah"
-  , brSort :: Int
-  , brActive :: Bool
-  , brUpdated :: Text
-  , brLat :: Maybe Double -- koordinat untuk urutan "terdekat"
-  , brLng :: Maybe Double
+-- | Satu baris log keamanan (menu Log).
+data LogEntry = LogEntry
+  { leId :: Int
+  , leAt :: Text -- waktu lokal server, "2026-11-22 11:24:45"
+  , leLevel :: Text -- "info" | "warn" | "danger"
+  , leEvent :: Text -- kunci peristiwa, mis. "login_fail" (lihat CMS.Log)
+  , leIp :: Text
+  , leActor :: Text -- pengguna yang sedang login saat kejadian
+  , leAccount :: Text -- akun yang dituju, mis. username yang dicoba saat login
+  , leMethod :: Text
+  , lePath :: Text
+  , leAgent :: Text
+  , leDetail :: Text
   }
 
-instance FromRow Branch where
+instance FromRow LogEntry where
   fromRow =
-    Branch <$> field <*> field <*> field <*> field <*> field <*> field <*> field <*> field
-      <*> field <*> field <*> field <*> field <*> field <*> field <*> field <*> field <*> field
+    LogEntry <$> field <*> field <*> field <*> field <*> field <*> field
+      <*> field <*> field <*> field <*> field <*> field
 
--- | Isian form cabang (buat & ubah) dan data awal.
-data BranchInput = BranchInput
-  { biName, biCity, biProvince, biAddress, biPhone, biPhone2, biWhatsapp, biHours, biNote, biMapsUrl, biMapsQuery :: Text
-  , biSort :: Int
-  , biActive :: Bool
-  , biLat, biLng :: Maybe Double
+-- | Filter daftar log. Tingkat: "" semua, "alert" peringatan & bahaya, atau satu tingkat.
+data LogFilter = LogFilter
+  { lfLevel :: Text
+  , lfEvent :: Text
+  , lfSearch :: Text
+  , lfDays :: Int -- 0 = semua waktu
   }
-
-emptyBranchInput :: BranchInput
-emptyBranchInput = BranchInput "" "" "" "" "" "" "" "" "Buka setiap hari" "" "" 0 True Nothing Nothing
-
-branchToInput :: Branch -> BranchInput
-branchToInput Branch {..} =
-  BranchInput brName brCity brProvince brAddress brPhone brPhone2 brWhatsapp brHours brNote brMapsUrl brMapsQuery brSort brActive brLat brLng
 
 -- | API key untuk API Gateway. Key asli hanya ditampilkan sekali saat dibuat; yang
 -- disimpan hanya hash SHA-256 dan awalannya (untuk dikenali di daftar).
@@ -195,7 +182,7 @@ data ApiKey = ApiKey
   , akName :: Text
   , akPrefix :: Text -- mis. "dcms_3f9c1a"
   , akHash :: Text
-  , akScopes :: Text -- "*" = semua API, atau daftar dipisah koma: "branches,posts"
+  , akScopes :: Text -- "*" = semua API, atau daftar dipisah koma: "posts"
   , akRateLimit :: Int -- permintaan per menit
   , akActive :: Bool
   , akCreated :: Text
@@ -204,16 +191,6 @@ data ApiKey = ApiKey
 
 instance FromRow ApiKey where
   fromRow = ApiKey <$> field <*> field <*> field <*> field <*> field <*> field <*> field <*> field <*> field
-
--- | Daftar provinsi Indonesia (pilihan di form cabang).
-provinces :: [Text]
-provinces =
-  [ "Aceh", "Sumatera Utara", "Sumatera Barat", "Riau", "Kepulauan Riau", "Jambi", "Bengkulu", "Sumatera Selatan"
-  , "Kepulauan Bangka Belitung", "Lampung", "Banten", "DKI Jakarta", "Jawa Barat", "Jawa Tengah", "DI Yogyakarta"
-  , "Jawa Timur", "Bali", "Nusa Tenggara Barat", "Nusa Tenggara Timur", "Kalimantan Barat", "Kalimantan Tengah"
-  , "Kalimantan Selatan", "Kalimantan Timur", "Kalimantan Utara", "Sulawesi Utara", "Gorontalo", "Sulawesi Tengah"
-  , "Sulawesi Barat", "Sulawesi Selatan", "Sulawesi Tenggara", "Maluku", "Maluku Utara", "Papua", "Papua Barat"
-  ]
 
 -- | Data form artikel (untuk buat & ubah).
 data PostInput = PostInput

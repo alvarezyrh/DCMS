@@ -7,13 +7,11 @@ module CMS.Handlers.Api (apiRoute, apiPreflight, newApiKey) where
 
 import Control.Applicative ((<|>))
 import Control.Concurrent.MVar (modifyMVar)
-import Control.Monad (mfilter)
+import Control.Monad (mfilter, when)
 import Data.Aeson
-import qualified Data.Aeson.Key as Key
 import qualified Data.ByteString as B
-import Data.List (sortOn)
 import qualified Data.Map.Strict as M
-import Data.Maybe (fromMaybe, isJust)
+import Data.Maybe (isJust)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -24,6 +22,7 @@ import Network.Wai (Response, requestHeaders, responseLBS)
 import CMS.Api
 import CMS.Auth (hashToken, randomToken)
 import CMS.DB
+import CMS.Log (Event (..), logEvent)
 import CMS.Seo (effectiveDesc, firstImage)
 import CMS.Types
 import CMS.Util
@@ -75,14 +74,18 @@ gateway c conf api rest = case lookupApi api of
         case auth of
           Left (st, code, msg) -> do
             withDb (cEnv c) $ \db -> recordApiHit db 0 api (statusCode st)
+            logEvent c ApiDenied "" (api <> ": " <> code)
             pure (apiError c conf st code msg)
           Right mKey -> do
-            (allowed, limit, remaining, retry) <- rateLimit c mKey
+            (n, limit, retry) <- rateLimit c mKey
             let keyId = maybe 0 akId mKey
-                rlHeaders = [("X-RateLimit-Limit", tshowB limit), ("X-RateLimit-Remaining", tshowB remaining)]
-            if not allowed
+                rlHeaders = [("X-RateLimit-Limit", tshowB limit), ("X-RateLimit-Remaining", tshowB (max 0 (limit - n)))]
+            if n > limit
               then do
                 withDb (cEnv c) $ \db -> recordApiHit db keyId api 429
+                -- Sekali per menit per key/IP, agar banjir permintaan tidak membanjiri log.
+                when (n == limit + 1) $
+                  logEvent c ApiLimited (maybe "" akName mKey) (api <> ": lebih dari " <> tshow limit <> " permintaan per menit")
                 pure $
                   addHeaders (("Retry-After", tshowB retry) : rlHeaders) $
                     apiError c conf status429 "rate_limited" ("Terlalu banyak permintaan. Batas " <> tshow limit <> " per menit; coba lagi dalam " <> tshow retry <> " detik.")
@@ -115,8 +118,8 @@ authenticate c conf api = case presented of
     allows key = let s = map T.strip (T.splitOn "," (akScopes key)) in "*" `elem` s || api `elem` s
 
 -- | Jendela tetap per menit: per API key, atau per IP untuk akses publik.
--- Hasil: (boleh?, batas, sisa, detik sampai menit berikutnya).
-rateLimit :: Ctx -> Maybe ApiKey -> IO (Bool, Int, Int, Int)
+-- Hasil: (permintaan ke-n menit ini, batas, detik sampai menit berikutnya).
+rateLimit :: Ctx -> Maybe ApiKey -> IO (Int, Int, Int)
 rateLimit c mKey = do
   now <- getPOSIXTime
   let secs = floor now :: Integer
@@ -130,23 +133,12 @@ rateLimit c mKey = do
           _ -> 1
         m' = M.insert bucket (minute, cur) (if M.size m > 20000 then M.filter ((== minute) . fst) m else m)
     pure (m', cur)
-  pure (n <= limit, limit, max 0 (limit - n), retry)
+  pure (n, limit, retry)
 
 -- Endpoint ----------------------------------------------------------------------------------
 
 endpoint :: Ctx -> Text -> [Text] -> IO (Status, Value)
 endpoint c api rest = case (api, rest) of
-  ("branches", []) -> branchList c
-  ("branches", ["provinces"]) -> do
-    bs <- withDb (cEnv c) listActiveBranches
-    -- Urutan provinsi mengikuti cabang pertamanya (sama seperti halaman /branch).
-    let provs = foldl (\acc b -> if brProvince b `elem` acc then acc else acc ++ [brProvince b]) [] bs
-    pure (status200, object ["data" .= [object ["province" .= p, "count" .= length (filter ((== p) . brProvince) bs)] | p <- provs], "meta" .= object ["total" .= length provs]])
-  ("branches", [i]) | Just bid <- readInt i -> do
-    mb <- withDb (cEnv c) (`findBranch` bid)
-    pure $ case mb of
-      Just b | brActive b -> (status200, object ["data" .= branchJson c Nothing b])
-      _ -> notFoundJ "Cabang tidak ditemukan."
   ("posts", []) -> postList c
   ("posts", [slug]) -> do
     mp <- withDb (cEnv c) (`findPublishedPost` slug)
@@ -160,45 +152,6 @@ endpoint c api rest = case (api, rest) of
   _ -> pure (notFoundJ "Endpoint tidak ditemukan. Lihat /api/docs.")
   where
     notFoundJ msg = (status404, errorBody 404 "not_found" msg)
-
-branchList :: Ctx -> IO (Status, Value)
-branchList c = do
-  bs <- withDb (cEnv c) listActiveBranches
-  let q = T.toLower (paramT c "q")
-      prov = T.toLower (paramT c "province")
-      city = T.toLower (paramT c "city")
-      hay b = T.toLower (T.unwords [brName b, brCity b, brProvince b, brAddress b, brPhone b])
-      filtered = [b | b <- bs, T.null q || all (`T.isInfixOf` hay b) (T.words q), T.null prov || T.toLower (brProvince b) == prov, T.null city || T.toLower (brCity b) == city]
-      near = parseCoords (paramT c "near")
-      radius = paramDouble "radius_km"
-      dist b = haversineKm <$> near <*> ((,) <$> brLat b <*> brLng b)
-      ranked = case near of
-        Nothing -> map (\b -> (b, Nothing)) filtered
-        Just _ ->
-          let withD = map (\b -> (b, dist b)) filtered
-              inR = maybe withD (\r -> [x | x@(_, Just d) <- withD, d <= r]) radius
-           in sortOn (\(_, d) -> fromMaybe (1 / 0) d) inR
-  if not (T.null (paramT c "near")) && not (isJust near)
-    then pure (status400, errorBody 400 "bad_request" "Parameter near harus berbentuk \"lat,lng\", mis. -6.2088,106.8456.")
-    else do
-      let (page, per, items, meta) = paginate 50 200 ranked
-      pure
-        ( status200
-        , object
-            [ "data" .= [branchJson c d b | (b, d) <- items]
-            , "meta" .= object (meta ++ ["page" .= page, "per_page" .= per] ++ ["near" .= object ["lat" .= la, "lng" .= lo] | Just (la, lo) <- [near]])
-            ]
-        )
-  where
-    paramDouble k = case reads (T.unpack (paramT c k)) :: [(Double, String)] of
-      [(v, "")] | v > 0 -> Just v
-      _ -> Nothing
-    paginate :: Int -> Int -> [a] -> (Int, Int, [a], [(Key.Key, Value)])
-    paginate def mx xs =
-      let per = maybe def (max 1 . min mx) (paramInt c "per_page")
-          page = maybe 1 (max 1) (paramInt c "page")
-          total = length xs
-       in (page, per, take per (drop ((page - 1) * per) xs), ["total" .= total, "total_pages" .= max 1 ((total + per - 1) `div` per)])
 
 postList :: Ctx -> IO (Status, Value)
 postList c = do
@@ -214,32 +167,6 @@ postList c = do
       pure (status200, object ["data" .= map (postJson c False) ps, "meta" .= object ["total" .= total, "page" .= page, "per_page" .= per, "total_pages" .= max 1 ((total + per - 1) `div` per)]])
 
 -- JSON ---------------------------------------------------------------------------------------
-
-branchJson :: Ctx -> Maybe Double -> Branch -> Value
-branchJson c mDist Branch {..} =
-  object $
-    [ "id" .= brId
-    , "order" .= brSort
-    , "name" .= brName
-    , "city" .= brCity
-    , "province" .= brProvince
-    , "address" .= brAddress
-    , "phone" .= nullIfBlank (fmtPhone brPhone)
-    , "phone2" .= nullIfBlank (fmtPhone brPhone2)
-    , "whatsapp" .= nullIfBlank wa
-    , "whatsapp_url" .= (if T.null wa then Null else String ("https://wa.me/" <> wa))
-    , "hours" .= nullIfBlank brHours
-    , "note" .= nullIfBlank brNote
-    , "maps_url" .= nullIfBlank brMapsUrl
-    , "location" .= case (brLat, brLng) of
-        (Just la, Just lo) -> object ["lat" .= la, "lng" .= lo]
-        _ -> Null
-    , "page_url" .= (siteOrigin c <> "/branch?cari=" <> T.replace " " "+" brName)
-    , "updated_at" .= isoTime brUpdated
-    ]
-      ++ ["distance_km" .= (fromIntegral (round (d * 10) :: Int) / 10 :: Double) | Just d <- [mDist]]
-  where
-    wa = if isBlank brWhatsapp then waNumber brPhone else T.filter (`elem` ['0' .. '9']) brWhatsapp
 
 postJson :: Ctx -> Bool -> Post -> Value
 postJson c full p =

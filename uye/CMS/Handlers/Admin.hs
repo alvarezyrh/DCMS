@@ -1,7 +1,7 @@
 -- | Handler dashboard: artikel, kategori, pengguna, profil, pengaturan.
 module CMS.Handlers.Admin (adminRoute) where
 
-import Control.Monad (void, when)
+import Control.Monad (unless, when)
 import Data.Aeson (eitherDecodeStrict, encode, object, (.=))
 import qualified Data.Aeson.Key as Key
 import qualified Data.ByteString.Lazy as BL
@@ -20,6 +20,8 @@ import CMS.Api (ApiConf (..), adKey, apiCatalog, decodeApiConf, defaultRateLimit
 import CMS.Auth
 import CMS.Blocks
 import CMS.DB
+import CMS.Log (Event (..), eventByKey, logEvent)
+import CMS.LogReport
 import CMS.Handlers.Api (newApiKey)
 import CMS.Handlers.Public (forbidden, notFound, passwordErrors, validateAccount, validEmail)
 import CMS.NavStyle (sanitizeNav)
@@ -30,7 +32,7 @@ import CMS.Upload (removeAsset, saveImage)
 import CMS.Util
 import CMS.Views.Admin
 import CMS.Views.ApiAdmin (ApiPageData (..), apiGatewayPage)
-import CMS.Views.BranchAdmin (branchFormPage, branchesPage)
+import CMS.Views.LogAdmin (LogPageData (..), logPage)
 import CMS.Views.PageAdmin (PageFilter (..), pageFormPage, pagesPage)
 import CMS.Views.SeoAdmin (SeoData (..), SeoWidget (..), seoPage)
 import CMS.Web
@@ -87,13 +89,9 @@ adminRoute path c u = case (cMethod c, path) of
   ("POST", ["api", "keys"]) -> admin (apiKeyCreate c u)
   ("POST", ["api", "keys", i, "toggle"]) | Just k <- readInt i -> admin (apiKeyToggle c k)
   ("POST", ["api", "keys", i, "delete"]) | Just k <- readInt i -> admin (apiKeyDelete c k)
-  -- Cabang (Admin & Editor)
-  ("GET", ["branches"]) -> staff (branchesIndex c u)
-  ("GET", ["branches", "new"]) -> staff (branchNew c u)
-  ("POST", ["branches"]) -> staff (branchSave c u Nothing)
-  ("GET", ["branches", i, "edit"]) | Just k <- readInt i -> staff (withBranch k (\b -> ok (branchFormPage c u (Just b) (branchToInput b) [])))
-  ("POST", ["branches", i]) | Just k <- readInt i -> staff (withBranch k (branchSave c u . Just))
-  ("POST", ["branches", i, "delete"]) | Just k <- readInt i -> staff (withBranch k (branchDelete c))
+  -- Log keamanan (Admin)
+  ("GET", ["log"]) -> admin (logIndex c u)
+  ("GET", ["log", "export"]) -> admin (logExport c u)
   -- SEO & analitik (Admin & Editor; pengaturan integrasi khusus Admin)
   ("GET", ["seo"]) -> staff (seoIndex c u [])
   ("POST", ["seo", "settings"]) -> admin (seoSettingsSave c u)
@@ -117,9 +115,7 @@ adminRoute path c u = case (cMethod c, path) of
         Nothing -> notFound c
     withCategory i k = db (`findCategory` i) >>= maybe (notFound c) (k c u)
     withUser i k = db (`findUserById` i) >>= maybe (notFound c) (k c u)
-    withBranch i k = db (`findBranch` i) >>= maybe (notFound c) k
     withPage s k = db (`findPage` s) >>= maybe (notFound c) k
-
 
 -- Dashboard ---------------------------------------------------------------------
 
@@ -365,6 +361,7 @@ userCreate c u = do
     else do
       h <- hashPassword pw
       _ <- withDb (cEnv c) $ \db -> createUser db ufUsername ufEmail h ufRole ufDisplay ufActive
+      logEvent c UserCreated ufUsername ("Peran " <> roleLabel ufRole <> if ufActive then "" else ", nonaktif")
       redirectFlash "/admin/users" "success" ("Pengguna @" <> ufUsername <> " ditambahkan.")
 
 userUpdate :: Ctx -> User -> User -> IO Response
@@ -388,6 +385,12 @@ userUpdate c u x = do
         -- Paksa login ulang bila hak akses atau password berubah.
         when (not self && (ufRole /= userRole x || not ufActive || mh /= Nothing)) $
           deleteUserSessions db (userId x)
+      logEvent c UserUpdated ufUsername $
+        T.intercalate ", " $
+          ["username dari @" <> userName x | ufUsername /= userName x]
+            ++ ["peran " <> roleLabel (userRole x) <> " → " <> roleLabel ufRole | ufRole /= userRole x]
+            ++ [if ufActive then "diaktifkan" else "dinonaktifkan" | ufActive /= userActive x]
+            ++ ["password direset" | isJust mh]
       redirectFlash "/admin/users" "success" ("Pengguna @" <> ufUsername <> " diperbarui.")
 
 userDelete :: Ctx -> User -> User -> IO Response
@@ -396,6 +399,7 @@ userDelete c u x
   | otherwise = do
       withDb (cEnv c) $ \db -> deleteUser db (userId x) (userId u)
       removeAsset (cEnv c) (userAvatar x)
+      logEvent c UserDeleted (userName x) (roleLabel (userRole x))
       redirectFlash "/admin/users" "success" ("Pengguna @" <> userName x <> " dihapus.")
 
 -- Profil ------------------------------------------------------------------------------
@@ -418,10 +422,14 @@ passwordUpdate c u = do
   let cur = paramRaw c "current"
       pw = paramRaw c "password"
       pw2 = paramRaw c "password2"
-      errs = ["Password saat ini salah." | not (checkPassword cur (userHash u))] ++ passwordErrors pw pw2
+      curOk = checkPassword cur (userHash u)
+      errs = ["Password saat ini salah." | not curOk] ++ passwordErrors pw pw2
   if not (null errs)
-    then pure $ htmlResp status422 (profilePage c u [] errs)
+    then do
+      unless curOk $ logEvent c PasswordFail (userName u) "Password saat ini salah"
+      pure $ htmlResp status422 (profilePage c u [] errs)
     else do
+      logEvent c PasswordChanged (userName u) ""
       h <- hashPassword pw
       tok <- randomToken
       withDb (cEnv c) $ \db -> do
@@ -732,98 +740,51 @@ verifyCode raw =
       ok ch = isAsciiUpper ch || isAsciiLower ch || isDigit ch || ch == '-' || ch == '_'
    in if T.all ok inner && T.length inner <= 120 then inner else ""
 
--- Cabang ------------------------------------------------------------------------------------
+-- Log keamanan ------------------------------------------------------------------------------
 
-branchesIndex :: Handler
-branchesIndex c u = do
-  bs <- withDb (cEnv c) listBranches
-  let q = T.toLower (paramT c "q")
-      prov = paramT c "prov"
-      hay b = T.toLower (T.unwords [brName b, brCity b, brProvince b, brAddress b, brPhone b, brPhone2 b])
-      shown = [b | b <- bs, T.null q || q `T.isInfixOf` hay b, T.null prov || brProvince b == prov]
-  ok (branchesPage c u bs shown (paramT c "q") prov)
-
-branchNew :: Handler
-branchNew c u = do
-  n <- withDb (cEnv c) nextBranchSort
-  ok (branchFormPage c u Nothing emptyBranchInput {biSort = n} [])
-
-readBranchInput :: Ctx -> BranchInput
-readBranchInput c =
-  BranchInput
-    { biName = T.take 120 (paramT c "name")
-    , biCity = T.take 80 (paramT c "city")
-    , biProvince = T.take 60 (paramT c "province")
-    , biAddress = T.take 400 (T.unwords (T.words (paramT c "address")))
-    , biPhone = T.take 30 (paramT c "phone")
-    , biPhone2 = T.take 30 (paramT c "phone2")
-    , biWhatsapp = normalizeWa (paramT c "whatsapp")
-    , biHours = T.take 120 (paramT c "hours")
-    , biNote = T.take 80 (paramT c "note")
-    , biMapsUrl = T.take 500 (paramT c "maps_url")
-    , biMapsQuery = T.take 120 (paramT c "maps_query")
-    , biSort = maybe 0 (max 0 . min 100000) (paramInt c "sort")
-    , biActive = paramBool c "active"
-    , biLat = fst <$> coords
-    , biLng = snd <$> coords
+-- | Filter log dari parameter (halaman Log & unduhan laporan). Periode bawaan 7 hari.
+logFilter :: Ctx -> LogFilter
+logFilter c =
+  LogFilter
+    { lfLevel = let l = paramT c "level" in if l `elem` ["alert", "info", "warn", "danger"] then l else ""
+    , lfEvent = maybe "" (const (paramT c "event")) (eventByKey (paramT c "event"))
+    , lfSearch = T.take 100 (paramT c "q")
+    , lfDays = maybe 7 (\d -> if d `elem` [0, 1, 30] then d else 7) (paramInt c "days")
     }
-  where
-    -- Koordinat dari isian "lat, lng"; bila kosong, coba ambil dari tautan Google Maps lengkap.
-    coords = case parseCoords (paramT c "coords") of
-      Just ll -> Just ll
-      Nothing | isBlank (paramT c "coords") -> coordsFromMapsUrl (paramT c "maps_url")
-      Nothing -> Nothing
 
--- | Koordinat dari URL Google Maps: ".../place/...!3d-6.2!4d106.8" atau ".../@-6.2,106.8,17z".
-coordsFromMapsUrl :: Text -> Maybe (Double, Double)
-coordsFromMapsUrl u
-  | (_, r) <- T.breakOn "!3d" u, not (T.null r) =
-      let (la, r2) = T.breakOn "!4d" (T.drop 3 r)
-       in parseCoords (la <> "," <> T.takeWhile (\ch -> isDigit ch || ch `elem` ['.', '-']) (T.drop 3 r2))
-  | (_, r) <- T.breakOn "/@" u, not (T.null r) =
-      case T.splitOn "," (T.drop 2 r) of
-        (la : lo : _) -> parseCoords (la <> "," <> lo)
-        _ -> Nothing
-  | otherwise = Nothing
+logIndex :: Handler
+logIndex c u = do
+  let f = logFilter c
+      page = pageParam c
+      per = 50
+  d <- withDb (cEnv c) $ \db -> do
+    (rows, total) <- listLogs db f page per
+    LogPageData f rows total page (max 1 ((total + per - 1) `div` per))
+      <$> logCounts db 24
+      <*> suspiciousIps db 7 8
+  ok (logPage c u d)
 
-validateBranch :: BranchInput -> [Text]
-validateBranch BranchInput {..} =
-  concat
-    [ ["Nama outlet wajib diisi." | isBlank biName]
-    , ["Kota / wilayah wajib diisi." | isBlank biCity]
-    , ["Provinsi wajib dipilih." | isBlank biProvince]
-    , ["Alamat wajib diisi." | isBlank biAddress]
-    , ["Nomor telepon tidak valid (8–15 digit)." | badPhone biPhone]
-    , ["Nomor telepon kedua tidak valid (8–15 digit)." | badPhone biPhone2]
-    , ["Nomor WhatsApp tidak valid (8–15 digit)." | badPhone biWhatsapp]
-    , ["Tautan peta harus diawali https://" | not (T.null biMapsUrl) && not (isWebUrl biMapsUrl)]
-    ]
-  where
-    badPhone t = let n = T.length (T.filter isDigit t) in not (T.null t) && (n < 8 || n > 15)
-
--- | Koordinat diisi tapi tidak bisa dibaca?
-badCoords :: Ctx -> [Text]
-badCoords c =
-  ["Koordinat tidak valid. Tulis seperti: -6.2088, 106.8456" | not (isBlank raw) && isNothing (parseCoords raw)]
-  where
-    raw = paramT c "coords"
-
-branchSave :: Ctx -> User -> Maybe Branch -> IO Response
-branchSave c u mB = do
-  let input = readBranchInput c
-      errs = validateBranch input ++ badCoords c
-  if not (null errs)
-    then pure $ htmlResp status422 (branchFormPage c u mB input errs)
-    else do
-      withDb (cEnv c) $ \db -> case mB of
-        Nothing -> void (createBranch db input)
-        Just b -> updateBranch db (brId b) input
-      redirectFlash "/admin/branches" "success" ("Cabang “" <> biName input <> "” " <> maybe "ditambahkan." (const "diperbarui.") mB)
-
-branchDelete :: Ctx -> Branch -> IO Response
-branchDelete c b = do
-  withDb (cEnv c) (`deleteBranch` brId b)
-  redirectFlash "/admin/branches" "success" ("Cabang “" <> brName b <> "” dihapus.")
+-- | Unduh laporan log (Excel/PDF) sesuai filter yang sedang dipakai. Unduhan dicatat
+-- di log beserta nomor & sidik laporannya.
+logExport :: Handler
+logExport c u = case formatByKey (paramT c "format") of
+  Nothing -> notFound c
+  Just fmt -> do
+    let f = logFilter c
+    (rows, total) <- withDb (cEnv c) $ \db -> listLogs db f 1 exportLimit
+    now <- getZonedTime
+    let r = buildReport (setSiteName (cSettings c)) u now f rows total
+        (name, ctype, body) = reportFile fmt r
+    logEvent c ReportExported "" $
+      formatLabel fmt <> " · " <> tshow (length rows) <> " catatan · " <> lrNumber r <> " · SHA-256 " <> lrDigest r
+    pure $
+      responseLBS
+        status200
+        [ (hContentType, ctype)
+        , ("Content-Disposition", "attachment; filename=\"" <> TE.encodeUtf8 name <> "\"")
+        , (hCacheControl, "no-store")
+        ]
+        body
 
 -- API Gateway --------------------------------------------------------------------------------
 
@@ -867,6 +828,7 @@ apiKeyCreate c u = do
     else do
       (full, prefix, h) <- newApiKey
       _ <- withDb (cEnv c) $ \db -> createApiKey db name prefix h scopes limit
+      logEvent c ApiKeyCreated name ("Cakupan " <> scopes <> ", " <> tshow limit <> "/menit")
       -- Tidak redirect: key lengkap hanya ditampilkan di respons ini.
       apiGateway c u (Just (name, full)) []
 
@@ -884,4 +846,5 @@ apiKeyDelete c i =
     Nothing -> notFound c
     Just k -> do
       withDb (cEnv c) (`deleteApiKey` i)
+      logEvent c ApiKeyDeleted (akName k) (akPrefix k <> "…")
       redirectFlash "/admin/api#keys" "success" ("API key “" <> akName k <> "” dihapus.")

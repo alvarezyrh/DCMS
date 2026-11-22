@@ -25,7 +25,7 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 
 data Endpoint = Endpoint
-  { epPath :: Text -- mis. "/api/v1/branches/{id}"
+  { epPath :: Text -- mis. "/api/v1/posts/{slug}"
   , epSummary :: Text
   , epParams :: [(Text, Text, Text)] -- (nama, tipe, keterangan); parameter path ditulis {nama}
   }
@@ -40,20 +40,7 @@ data ApiDef = ApiDef
 
 apiCatalog :: [ApiDef]
 apiCatalog =
-  [ ApiDef "branches" "Cabang" "fa-solid fa-store" "Daftar cabang/outlet: alamat, kontak, jam buka, peta, dan urutan terdekat." $
-      [ Endpoint "/api/v1/branches" "Daftar cabang aktif" $
-          [ ("q", "string", "Cari di nama, kota, provinsi, alamat, telepon")
-          , ("province", "string", "Filter provinsi, mis. DKI Jakarta")
-          , ("city", "string", "Filter kota, mis. Surabaya")
-          , ("near", "string", "Urutkan dari terdekat ke titik \"lat,lng\", mis. -6.2088,106.8456 (menambah distance_km)")
-          , ("radius_km", "number", "Bersama near: hanya cabang dalam radius ini")
-          , ("page", "integer", "Halaman (mulai 1)")
-          , ("per_page", "integer", "Jumlah per halaman (1–200, bawaan 50)")
-          ]
-      , Endpoint "/api/v1/branches/{id}" "Detail satu cabang" [("id", "integer", "ID cabang")]
-      , Endpoint "/api/v1/branches/provinces" "Jumlah cabang per provinsi" []
-      ]
-  , ApiDef "posts" "Artikel" "fa-regular fa-newspaper" "Artikel yang sudah terbit, lengkap dengan isi (Markdown & HTML) dan data SEO." $
+  [ ApiDef "posts" "Artikel" "fa-regular fa-newspaper" "Artikel yang sudah terbit, lengkap dengan isi (Markdown & HTML) dan data SEO." $
       [ Endpoint "/api/v1/posts" "Daftar artikel terbit (terbaru dulu)" $
           [ ("q", "string", "Cari di judul & isi")
           , ("category", "string", "Slug kategori, mis. tutorial")

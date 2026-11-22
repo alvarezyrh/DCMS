@@ -49,19 +49,24 @@ database **SQLite**, HTML dari **Lucid**, password **bcrypt**, dan konten **Mark
   situs lain) tanpa cookie, halaman terpopuler, audit skor SEO semua artikel, serta integrasi Google Search
   Console, Bing, Google Analytics 4, `sitemap.xml`, dan `robots.txt` otomatis. Ringkasannya tampil sebagai
   widget di dashboard.
-- **Menu Cabang** (Admin & Editor): kelola cabang/outlet (alamat, telepon & WhatsApp, jam, catatan, tautan peta,
-  urutan, aktif/nonaktif). Halaman `/branch` menampilkannya lewat blok **Direktori cabang**: dikelompokkan per
-  provinsi, dengan pencarian, filter provinsi (bisa ditautkan: `/branch?provinsi=Bali`, `/branch?cari=surabaya`),
-  tombol WhatsApp/peta/rute, dan data terstruktur Store untuk Google. Berisi awal 122 outlet.
-  Setiap cabang bernomor urut; tombol **Urutkan dari terdekat** memakai lokasi pengunjung (izin browser,
-  butuh HTTPS) untuk menomori cabang dari yang terdekat sampai terjauh, lengkap dengan jaraknya.
-  Koordinat cabang diatur di form Cabang (atau diambil otomatis dari tautan Google Maps lengkap).
-- **API & API Gateway** (menu khusus Admin): REST API JSON di `/api/v1` untuk web/aplikasi lain — Cabang
-  (`/branches`, filter `q`/`province`/`city`, urutan terdekat `near=lat,lng` + `radius_km`, detail, per provinsi),
-  Artikel, Kategori, dan Info situs. Tiap API bisa diaktifkan/dimatikan dan diatur aksesnya (publik atau wajib
+- **API & API Gateway** (menu khusus Admin): REST API JSON di `/api/v1` untuk web/aplikasi lain — Artikel,
+  Kategori, dan Info situs. Tiap API bisa diaktifkan/dimatikan dan diatur aksesnya (publik atau wajib
   API key). API key disimpan sebagai hash, punya cakupan API dan batas permintaan per menit; pemakaian dicatat
   per API dan per key; CORS diatur per domain. Dokumentasi di `/api/docs`, spesifikasi di `/api/openapi.json`.
-  Contoh: `curl -H "X-API-Key: dcms_…" https://domain-anda/api/v1/branches?near=-6.2,106.8&per_page=5`
+  Contoh: `curl -H "X-API-Key: dcms_…" https://domain-anda/api/v1/posts?per_page=5`
+- **Log keamanan** (menu khusus Admin): mencatat login berhasil/gagal/diblokir, login akun nonaktif,
+  pendaftaran, token formulir (CSRF) tidak valid, akses dashboard ditolak, pemindaian alamat rawan
+  (`/wp-admin`, `.env`, `.php`, …), ganti password, tambah/ubah/hapus pengguna, buat/hapus API key, API key
+  ditolak, dan batas API terlampaui (sekali per menit). Tiap catatan berisi waktu, tingkat (info,
+  peringatan, bahaya), IP, pelaku, akun yang dituju, alamat, user agent, dan keterangan. Halamannya
+  menampilkan ringkasan 24 jam, IP paling mencurigakan 7 hari terakhir, serta daftar log dengan filter
+  (IP/akun/alamat, tingkat, peristiwa, periode). Log disimpan 180 hari.
+  Log bisa **diunduh sebagai laporan Excel (.xlsx) atau PDF** sesuai filter yang dipakai (maks. 10.000
+  catatan terbaru). Laporan memuat nomor laporan, situs, periode, filter, jumlah & ringkasan per tingkat,
+  waktu pembuatan, pembuatnya, dan **sidik SHA-256** dari seluruh catatan. Setiap unduhan tercatat di log
+  ("Laporan diunduh") beserta nomor & sidiknya, sehingga keaslian laporan bisa dicocokkan. Excel berisi
+  lembar Ringkasan dan Log (judul tabel dibekukan + filter); PDF berukuran A4 lanskap dengan nomor halaman.
+  Keduanya dibuat sendiri tanpa library tambahan.
 - **Popup gambar**: gambar di halaman dan artikel bisa diklik untuk dibuka besar (tombol panah, Esc untuk
   menutup). Bisa dimatikan di panel Tampilan situs.
 - **Blok Kode custom**: HTML, CSS, dan JavaScript sendiri di page builder. Dijalankan di iframe sandbox
@@ -120,10 +125,15 @@ Lupa password? Jalankan `cabal run DCMS -- reset-password admin` (atau di Docker
 
 ```
 app/Main.hs                  konfigurasi dari env, start server Warp, perintah reset-password
-uye/CMS/Types.hs             tipe domain (User, Post, Branch, Settings, Ctx…), peran & izin
+uye/CMS/Types.hs             tipe domain (User, Post, Settings, Ctx…), peran & izin
 uye/CMS/DB.hs                skema, migrasi, seed, dan semua query SQLite
 uye/CMS/App.hs               middleware (body, sesi, CSRF, header keamanan), routing, analitik, seed
 uye/CMS/Web.hs               parameter form/query, respons, cookie, flash, redirect
+uye/CMS/Log.hs               log keamanan: jenis peristiwa, pencatat, deteksi pemindaian
+uye/CMS/LogReport.hs         laporan log (Excel/PDF): identitas, nomor & sidik SHA-256
+uye/CMS/Xlsx.hs              penulis buku kerja Excel (.xlsx) minimal
+uye/CMS/Pdf.hs               penulis PDF laporan tabel (A4 lanskap, Helvetica)
+uye/CMS/Zip.hs               penulis arsip ZIP (wadah .xlsx)
 uye/CMS/Auth.hs              bcrypt, token acak, hash token
 uye/CMS/RateLimit.hs         batas percobaan login (per IP, akun, IP+akun)
 uye/CMS/Blocks.hs            page builder: jenis blok, validasi, templat & halaman bawaan
@@ -134,7 +144,6 @@ uye/CMS/Api.hs               katalog & konfigurasi API Gateway
 uye/CMS/Upload.hs            unggah gambar (cek isi berkas) & sajikan /asset/img
 uye/CMS/Static.hs            CSS/JS di memori: buang komentar, gzip, versi otomatis, cache
 uye/CMS/Status.hs            status server (CPU, RAM, disk, uptime) untuk dashboard
-uye/CMS/BranchSeed.hs        data awal cabang
 uye/CMS/Handlers/Public.hs   situs publik, login, register, sitemap, robots
 uye/CMS/Handlers/Admin.hs    dashboard (semua menu /admin)
 uye/CMS/Handlers/Api.hs      REST API /api/v1 + gateway (key, kuota, CORS)
@@ -143,9 +152,9 @@ uye/CMS/Views/Site.hs        render blok halaman + mode edit (panel builder)
 uye/CMS/Views/Public.hs      artikel, kategori, login, register
 uye/CMS/Views/Admin.hs       dashboard, artikel, kategori, pengguna, profil, pengaturan
 uye/CMS/Views/PageAdmin.hs   menu Halaman: daftar, buat baru, pengaturan
-uye/CMS/Views/BranchAdmin.hs menu Cabang
 uye/CMS/Views/SeoAdmin.hs    menu SEO & Analitik
 uye/CMS/Views/ApiAdmin.hs    menu API Gateway
+uye/CMS/Views/LogAdmin.hs    menu Log
 uye/CMS/Views/ApiDocs.hs     /api/docs & /api/openapi.json
 static/style.css             tampilan situs & dashboard
 static/app.js                interaksi umum (menu HP, lightbox, popup, form, SEO langsung, dashboard)
@@ -215,7 +224,7 @@ flowchart TD
 
     subgraph L2["Handler"]
         HP["Handlers.Public<br/>beranda · halaman · blog · artikel · kategori<br/>login · register · sitemap · robots"]
-        HA["Handlers.Admin<br/>dashboard · halaman · artikel · kategori · cabang<br/>SEO · API · pengguna · profil · pengaturan · unggah"]
+        HA["Handlers.Admin<br/>dashboard · halaman · artikel · kategori<br/>SEO · API · log · pengguna · profil · pengaturan · unggah"]
         HX["Handlers.Api<br/>gateway · endpoint JSON · CORS"]
     end
 
@@ -223,7 +232,7 @@ flowchart TD
         VL["Views.Layout<br/>header · menu · footer · meta SEO · sidebar admin"]
         VS["Views.Site<br/>render blok · mode edit · panel builder"]
         VP["Views.Public"]
-        VA["Views.Admin · PageAdmin · BranchAdmin<br/>SeoAdmin · ApiAdmin · ApiDocs"]
+        VA["Views.Admin · PageAdmin<br/>SeoAdmin · ApiAdmin · LogAdmin · ApiDocs"]
     end
 
     subgraph L4["Logika domain"]
@@ -320,10 +329,9 @@ flowchart TD
     EX -- ya --> VIS{"Terbit, atau<br/>pengunjung Admin/Editor?"}
     VIS -- tidak --> N404
     VIS -- ya --> ED{"?edit=1 dan Admin/Editor?"}
-    ED -- ya --> E1["Mode edit:<br/>ambil 6 artikel + semua cabang aktif"]
-    ED -- tidak --> E2["Mode lihat:<br/>ambil artikel sebanyak blok 'Artikel terbaru' perlu<br/>+ cabang bila ada blok 'Direktori cabang'"]
-    E1 & E2 --> PD["PageData: artikel, cabang, nama situs"]
-    PD --> LAY["siteLayoutMeta"]
+    ED -- ya --> E1["Mode edit:<br/>ambil 6 artikel"]
+    ED -- tidak --> E2["Mode lihat:<br/>ambil artikel sebanyak blok 'Artikel terbaru' perlu"]
+    E1 & E2 --> LAY["siteLayoutMeta"]
 
     subgraph HEAD["&lt;head&gt;"]
         M1["title & deskripsi: SEO halaman → bawaan situs"]
@@ -348,9 +356,9 @@ flowchart TD
     B4 --> RB{"Jenis blok"}
     RB --> K1["hero · head · text · split · stats · cta · image"]
     RB --> K2["features (13 gaya kartu) · testimonials · faq (+JSON-LD)<br/>pricing · team · gallery · logos"]
-    RB --> K3["posts (artikel terbaru) · branches · branchdir<br/>(direktori cabang + Store JSON-LD)"]
+    RB --> K3["posts (artikel terbaru)"]
     RB --> K4["slider · video (YouTube) · code (iframe sandbox)<br/>· popup (dialog brosur)"]
-    BODY --> JS["static/app.js di browser:<br/>menu HP, animasi muncul, slider, lightbox,<br/>popup brosur (jeda & frekuensi), urut cabang terdekat,<br/>tinggi iframe kode"]
+    BODY --> JS["static/app.js di browser:<br/>menu HP, animasi muncul, slider, lightbox,<br/>popup brosur (jeda & frekuensi),<br/>tinggi iframe kode"]
 ```
 
 ### 6. Login, registrasi, dan sesi
@@ -390,9 +398,9 @@ flowchart LR
 
     U --> HAL["Halaman"]
     U --> ART["Artikel"]
-    U --> CAB["Cabang"]
     U --> SEOM["SEO & Analitik"]
     U --> APIM["API Gateway"]
+    U --> LOG["Log"]
     U --> USR["Pengguna"]
     U --> SET["Pengaturan"]
     U --> PRO["Profil"]
@@ -400,9 +408,9 @@ flowchart LR
     HAL --> HAL1["daftar + filter + urutan menu<br/>buat dari templat / salin<br/>pengaturan: judul, alamat, terbit/draf, menu, ikon, SEO<br/>duplikat · hapus · Edit di halaman"]
     ART --> ART1["Semua artikel · Tulis baru<br/>editor Markdown + pratinjau + skor SEO"]
     ART --> ART2["Kategori"]
-    CAB --> CAB1["CRUD cabang, koordinat, urutan, aktif"]
     SEOM --> SEO1["kunjungan per sumber, halaman terpopuler,<br/>audit SEO artikel, integrasi Google/Bing/GA4"]
     APIM --> API1["aktif/publik per API, CORS,<br/>API key (hash, cakupan, kuota), statistik"]
+    LOG --> LOG1["ringkasan 24 jam, IP mencurigakan,<br/>log keamanan + filter,<br/>unduh laporan Excel/PDF"]
     USR --> USR1["CRUD pengguna & peran"]
     SET --> SET1["nama, slogan, deskripsi, registrasi,<br/>WhatsApp, sosial, logo dashboard"]
     PRO --> PRO1["profil, foto, ganti password"]
@@ -411,8 +419,8 @@ flowchart LR
     classDef staf fill:#fef3c7,stroke:#b45309,color:#10201e
     classDef admin fill:#fee2e2,stroke:#b91c1c,color:#10201e
     class D,ART,ART1,PRO,PRO1 semua
-    class HAL,HAL1,ART2,CAB,CAB1,SEOM,SEO1 staf
-    class APIM,API1,USR,USR1,SET,SET1 admin
+    class HAL,HAL1,ART2,SEOM,SEO1 staf
+    class APIM,API1,LOG,LOG1,USR,USR1,SET,SET1 admin
 ```
 
 Warna: hijau = semua peran (User hanya artikel miliknya), kuning = Admin & Editor, merah = khusus Admin.
@@ -430,7 +438,7 @@ sequenceDiagram
     participant D as SQLite
 
     A->>S: GET /:slug?edit=1
-    S->>D: findPage + settings + menu + artikel + cabang
+    S->>D: findPage + settings + menu + artikel
     S-->>B: HTML halaman dengan atribut data-f / data-fa,<br/>template semua jenis blok, panel Tampilan situs
     Note over B: Edit langsung di halaman
     A->>B: ketik teks (contenteditable)
@@ -505,7 +513,7 @@ pemeriksaan) dan pratinjau Google dihitung langsung di browser dengan aturan yan
 
 ```mermaid
 flowchart TD
-    Q(["GET /api/v1/:api/…"]) --> C1{"API ada di katalog?<br/>branches · posts · categories · site"}
+    Q(["GET /api/v1/:api/…"]) --> C1{"API ada di katalog?<br/>posts · categories · site"}
     C1 -- tidak --> E404["404 not_found"]
     C1 -- ya --> C2{"API aktif?<br/>(menu API Gateway)"}
     C2 -- tidak --> E404b["404 api_disabled"]
@@ -518,7 +526,7 @@ flowchart TD
     V -- tidak --> E4013["401 invalid / disabled<br/>atau 403 forbidden"]
     V -- ya --> RL{"Kuota per menit<br/>(per key, atau per IP untuk publik)"}
     RL -- habis --> E429["429 rate_limited + Retry-After"]
-    RL -- ok --> EP["Endpoint:<br/>branches (q, province, city, near, radius_km, paginasi)<br/>branches/{id} · branches/provinces<br/>posts · posts/{slug} · categories · site"]
+    RL -- ok --> EP["Endpoint:<br/>posts · posts/{slug} · categories · site"]
     EP --> LOG["api_usage +1 (hari, key, api, status)<br/>+ last_used_at key"]
     LOG --> RES["JSON + CORS (domain diizinkan)<br/>+ X-RateLimit-* + Cache-Control"]
     E401 & E4013 & E429 --> LOG2["catat ke api_usage"]
@@ -636,25 +644,6 @@ erDiagram
         text engine PK
         int views
     }
-    branches {
-        int id PK
-        text name
-        text city
-        text province
-        text address
-        text phone
-        text phone2
-        text whatsapp
-        text hours
-        text note
-        text maps_url
-        text maps_query
-        real lat
-        real lng
-        int sort_order
-        int active
-        text updated_at
-    }
     api_keys {
         int id PK
         text name
@@ -673,6 +662,19 @@ erDiagram
         int status PK
         int hits
     }
+    security_log {
+        int id PK
+        text at "waktu lokal"
+        text level "info | warn | danger"
+        text event
+        text ip
+        text actor
+        text account
+        text method
+        text path
+        text user_agent
+        text detail
+    }
 ```
 
 Isi penting tabel `settings`:
@@ -685,7 +687,7 @@ Isi penting tabel `settings`:
 | `seo_google`, `seo_bing`, `seo_ga`, `seo_image`, `seo_index` | integrasi menu SEO |
 | `nav_style` | JSON Tampilan situs dari page builder: Tema (warna, latar body & halaman, huruf, lebar, logo website), Navigasi (warna bersama, menu atas & bawah), Footer (isi, warna, ukuran, melayang, sudut) |
 | `api_config` | JSON API Gateway: API aktif/publik, CORS |
-| `branches_seeded`, `pages_menu_v1`, … | penanda migrasi sekali jalan |
+| `pages_seeded`, `pages_menu_v1`, … | penanda migrasi sekali jalan |
 
 ### 15. Saat server mulai
 
@@ -695,8 +697,8 @@ flowchart TD
     AR -- "reset-password user" --> RP["Ganti password (CMS_NEW_PASSWORD / diketik)<br/>+ hapus semua sesinya → keluar"]
     AR -- tidak ada --> ENV["Baca env: CMS_PORT, CMS_DB, CMS_STATIC, CMS_ASSETS,<br/>CMS_SITE_URL, CMS_TRUST_PROXY, CMS_ADMIN_PASSWORD"]
     ENV --> OD["openDb: foreign_keys ON, WAL"]
-    OD --> MG["migrate: CREATE TABLE IF NOT EXISTS<br/>+ ALTER TABLE kolom baru (avatar, SEO, status halaman …)<br/>+ data awal cabang + migrasi sekali jalan"]
-    MG --> SP["seedPages: halaman bawaan (Home, About, Services,<br/>Branch, Blog, Contact) sekali saja;<br/>Home & Blog selalu dipastikan ada"]
+    OD --> MG["migrate: CREATE TABLE IF NOT EXISTS<br/>+ ALTER TABLE kolom baru (avatar, SEO, status halaman …)<br/>+ migrasi sekali jalan"]
+    MG --> SP["seedPages: halaman bawaan (Home, About, Services,<br/>Blog, Contact) sekali saja;<br/>Home & Blog selalu dipastikan ada"]
     SP --> SE{"Belum ada pengguna?"}
     SE -- ya --> AD["Buat admin + kategori + artikel contoh"]
     SE -- tidak --> RUN

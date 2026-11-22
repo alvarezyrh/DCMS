@@ -31,6 +31,7 @@ import CMS.Analytics (classifyReferer, isBot, trackable)
 import CMS.Auth
 import CMS.Blocks (pageSlugError)
 import CMS.DB
+import CMS.Log (Event (..), isProbe, logEvent)
 import qualified CMS.Handlers.Admin as Admin
 import qualified CMS.Handlers.Api as Api
 import qualified CMS.Handlers.Public as Public
@@ -59,8 +60,7 @@ securityHeaders env =
     , ("X-Content-Type-Options", "nosniff")
     , ("Referrer-Policy", "same-origin")
     , ("Content-Security-Policy", "object-src 'none'; base-uri 'self'; frame-ancestors 'none'")
-    -- Lokasi boleh diminta halaman situs sendiri (urutan cabang terdekat), tidak oleh iframe lain.
-    , ("Permissions-Policy", "camera=(), microphone=(), geolocation=(self), payment=(), usb=()")
+    , ("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()")
     , ("Cross-Origin-Opener-Policy", "same-origin")
     ]
       ++ [("Strict-Transport-Security", "max-age=31536000; includeSubDomains") | envSecure env]
@@ -120,12 +120,13 @@ handle env req = do
           , cOffer = offer
           , cYear = tshow year
           }
+  let csrfBad = not tooBig && method == methodPost && lookup "_csrf" form /= Just csrf
   result <-
     if tooBig
       then
         pure . Right $
           htmlResp status413 (messagePage ctx "Berkas terlalu besar" "Ukuran unggahan melebihi batas (maksimal 2 MB per gambar).")
-    else if method == methodPost && lookup "_csrf" form /= Just csrf
+    else if csrfBad
       then
         pure . Right $
           htmlResp status403 (messagePage ctx "Formulir kedaluwarsa" "Token keamanan tidak valid. Muat ulang halaman lalu coba lagi.")
@@ -136,6 +137,7 @@ handle env req = do
       hPutStrLn stderr ("[error] " <> show e)
       pure $ htmlResp status500 (messagePage ctx "Terjadi kesalahan" "Maaf, terjadi kesalahan pada server.")
   trackView ctx resp
+  securityLog ctx csrfBad resp
   pure
     . (if newCsrf then addHeader (cookieHeader (csrfCookie env) (TE.encodeUtf8 csrf) (Just (30 * 86400))) else id)
     . (if isJust flash && not (setsCookie "flash" resp) then addHeader (clearCookie "flash") else id)
@@ -208,6 +210,17 @@ trackView c resp =
     path = "/" <> T.intercalate "/" (cPath c)
     self = maybe "" TE.decodeUtf8Lenient (requestHeaderHost req)
     (source, detail) = classifyReferer self (hdr hReferer)
+
+-- | Catat respons yang patut dicurigai: token formulir tidak valid, akses dashboard
+-- ditolak, dan pemindaian alamat celah yang tidak ada.
+securityLog :: Ctx -> Bool -> Response -> IO ()
+securityLog c csrfBad resp
+  | csrfBad = logEvent c CsrfFail "" ""
+  | code == 403 && take 1 (cPath c) == ["admin"] = logEvent c Forbidden "" ""
+  | code == 404 && isProbe (cPath c) = logEvent c Probe "" ""
+  | otherwise = pure ()
+  where
+    code = statusCode (responseStatus resp)
 
 -- Seed ----------------------------------------------------------------------------
 

@@ -23,7 +23,6 @@ library
     CMS.RateLimit
     CMS.Types
     CMS.Blocks
-    CMS.BranchSeed
     CMS.NavStyle
     CMS.Seo
     CMS.Analytics
@@ -35,14 +34,19 @@ library
     CMS.Static
     CMS.Status
     CMS.Web
+    CMS.Log
+    CMS.Zip
+    CMS.Xlsx
+    CMS.Pdf
+    CMS.LogReport
     CMS.Views.Layout
     CMS.Views.Public
     CMS.Views.PageAdmin
     CMS.Views.Site
     CMS.Views.SeoAdmin
-    CMS.Views.BranchAdmin
     CMS.Views.ApiDocs
     CMS.Views.ApiAdmin
+    CMS.Views.LogAdmin
     CMS.Views.Admin
     CMS.Handlers.Public
     CMS.Handlers.Api
@@ -68,6 +72,7 @@ library
     , containers
     , directory
     , zlib
+    , array
 
 executable DCMS
   import:           shared

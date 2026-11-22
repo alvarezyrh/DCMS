@@ -97,6 +97,16 @@ pagination base kvs page pages =
   where
     link n = urlWith base (kvs ++ [("page", tshow n)])
 
+-- | Kartu angka ringkas: ikon, label, nilai, dan keterangan kecil.
+kpiCard :: Text -> Text -> Text -> Text -> Html ()
+kpiCard ic label val sub =
+  div_ [class_ "card kpi"] $ do
+    span_ [class_ "kpi-ico"] (icon ic)
+    div_ $ do
+      span_ [class_ "kpi-label"] (toHtml label)
+      strong_ [class_ "kpi-value"] (toHtml val)
+      small_ [class_ "muted"] (toHtml sub)
+
 emptyState :: Text -> Html ()
 emptyState msg = div_ [class_ "empty"] (p_ (toHtml msg))
 
@@ -458,9 +468,9 @@ navItems u =
            ]
              ++ [leaf "categories" "Kategori" "/admin/categories" "fa-solid fa-tags" | isStaff u]
        ]
-    ++ [leaf "branches" "Cabang" "/admin/branches" "fa-solid fa-store" | isStaff u]
     ++ [leaf "seo" "SEO & Analitik" "/admin/seo" "fa-solid fa-chart-line" | isStaff u]
     ++ [leaf "api" "API Gateway" "/admin/api" "fa-solid fa-plug" | isAdmin u]
+    ++ [leaf "log" "Log" "/admin/log" "fa-solid fa-shield-halved" | isAdmin u]
     ++ [leaf "users" "Pengguna" "/admin/users" "fa-solid fa-users" | isAdmin u]
     ++ [leaf "settings" "Pengaturan" "/admin/settings" "fa-solid fa-gear" | isAdmin u]
     ++ [leaf "profile" "Profil" "/admin/profile" "fa-regular fa-circle-user"]

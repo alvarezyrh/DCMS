@@ -32,10 +32,10 @@ apiGatewayPage c u ApiPageData {..} errs = adminLayout c u "api" "API Gateway" $
       activeKeys = length (filter akActive apKeys)
       usageOf k = fromMaybe (0, 0) (lookup k [(a, (n, f)) | (a, n, f) <- apUsageApi])
   div_ [class_ "seo-kpis"] $ do
-    kpi "fa-solid fa-arrow-right-arrow-left" "Permintaan 7 hari" (fmt total) "Semua API"
-    kpi "fa-solid fa-triangle-exclamation" "Gagal" (pct failed total) (fmt failed <> " permintaan (4xx/5xx)")
-    kpi "fa-solid fa-plug-circle-check" "API aktif" (tshow activeApis <> " / " <> tshow (length apiCatalog)) "Dari katalog"
-    kpi "fa-solid fa-key" "API key aktif" (tshow activeKeys) (tshow (length apKeys) <> " key terdaftar")
+    kpiCard "fa-solid fa-arrow-right-arrow-left" "Permintaan 7 hari" (fmtInt total) "Semua API"
+    kpiCard "fa-solid fa-triangle-exclamation" "Gagal" (pct failed total) (fmtInt failed <> " permintaan (4xx/5xx)")
+    kpiCard "fa-solid fa-plug-circle-check" "API aktif" (tshow activeApis <> " / " <> tshow (length apiCatalog)) "Dari katalog"
+    kpiCard "fa-solid fa-key" "API key aktif" (tshow activeKeys) (tshow (length apKeys) <> " key terdaftar")
   errorList errs
   forM_ apNewKey $ \(name, key) ->
     section_ [class_ "card new-key", role_ "alert"] $ do
@@ -77,8 +77,8 @@ apiGatewayPage c u ApiPageData {..} errs = adminLayout c u "api" "API Gateway" $
             option_ ([value_ "key"] <> [selected_ "selected" | not (apiPublic apConf k)]) "Wajib API key"
             option_ ([value_ "public"] <> [selected_ "selected" | apiPublic apConf k]) "Publik (tanpa key)"
           td_ [class_ "right mono"] $ do
-            toHtml (fmt n)
-            when (f > 0) $ div_ [class_ "muted"] (toHtml (fmt f <> " gagal"))
+            toHtml (fmtInt n)
+            when (f > 0) $ div_ [class_ "muted"] (toHtml (fmtInt f <> " gagal"))
     div_ [class_ "api-cors"] $ do
       field "Domain yang boleh memanggil API dari browser (CORS)" "cors" $
         textarea_ [id_ "cors", name_ "cors", rows_ "3", placeholder_ "https://aplikasi-anda.com"] (toHtml (acCors apConf))
@@ -109,7 +109,7 @@ apiGatewayPage c u ApiPageData {..} errs = adminLayout c u "api" "API Gateway" $
           td_ (code_ [class_ "mono"] (toHtml (akPrefix k <> "…")))
           td_ (toHtml (scopeLabel (akScopes k)))
           td_ [class_ "mono"] (toHtml (tshow (akRateLimit k) <> "/menit"))
-          td_ [class_ "right mono"] (toHtml (fmt (fromMaybe 0 (lookup (akId k) apUsageKey))))
+          td_ [class_ "right mono"] (toHtml (fmtInt (fromMaybe 0 (lookup (akId k) apUsageKey))))
           td_ (maybe (span_ [class_ "muted"] "Belum pernah") (toHtml . fmtDate) (akLastUsed k))
           td_ (if akActive k then span_ [class_ "badge badge-published"] "Aktif" else span_ [class_ "badge badge-draft"] "Nonaktif")
           td_ [class_ "right actions"] $ do
@@ -120,23 +120,11 @@ apiGatewayPage c u ApiPageData {..} errs = adminLayout c u "api" "API Gateway" $
               csrfField c
               button_ [type_ "submit", class_ "btn btn-danger btn-sm"] "Hapus"
   where
-    kpi :: Text -> Text -> Text -> Text -> Html ()
-    kpi ic label val sub =
-      div_ [class_ "card kpi"] $ do
-        span_ [class_ "kpi-ico"] (icon ic)
-        div_ $ do
-          span_ [class_ "kpi-label"] (toHtml label)
-          strong_ [class_ "kpi-value"] (toHtml val)
-          small_ [class_ "muted"] (toHtml sub)
     scopeLabel s
       | "*" `elem` parts = "Semua API"
       | otherwise = T.intercalate ", " [adName a | a <- apiCatalog, adKey a `elem` parts]
       where
         parts = map T.strip (T.splitOn "," s)
-    fmt :: Int -> Text
-    fmt n
-      | n < 1000 = tshow n
-      | otherwise = T.intercalate "." (reverse (map T.reverse (T.chunksOf 3 (T.reverse (tshow n)))))
     pct :: Int -> Int -> Text
     pct _ 0 = "0%"
     pct a b = tshow (round (fromIntegral a * 100 / fromIntegral b :: Double) :: Int) <> "%"

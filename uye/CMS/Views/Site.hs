@@ -3,21 +3,20 @@
 -- Satu renderer dipakai untuk tampilan biasa dan mode edit. Di mode edit, setiap
 -- isian diberi atribut data-f (teks) / data-fa (atribut seperti URL atau ikon)
 -- yang dibaca kembali oleh static/builder.js saat menyimpan.
-module CMS.Views.Site (PageData (..), BlogList (..), pageView, blogListing, needsBranches) where
+module CMS.Views.Site (BlogList (..), pageView, blogListing) where
 
 import Control.Monad (forM_, replicateM_, unless, when)
 import Data.Aeson (encode, object, (.=))
 import qualified Data.ByteString.Lazy as BL
-import Data.Char (isAlphaNum, isDigit)
+import Data.Char (isAlphaNum)
 import Data.List (find)
 import qualified Data.Map.Strict as M
-import Data.Maybe (fromMaybe, isJust, isNothing)
+import Data.Maybe (fromMaybe, isNothing)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Lucid
 import Lucid.Base (makeAttribute)
-import Network.HTTP.Types.URI (urlEncode)
 
 import CMS.Blocks
 import CMS.NavStyle
@@ -28,20 +27,10 @@ import CMS.Views.Layout
 
 -- Halaman ------------------------------------------------------------------------------
 
--- | Data dinamis yang dipakai blok: artikel terbaru dan cabang (menu Cabang).
-data PageData = PageData
-  { pdPosts :: [Post]
-  , pdBranches :: [Branch]
-  , pdSite :: Text -- nama situs (untuk pesan WhatsApp & data terstruktur)
-  }
-
--- | Halaman ini butuh data cabang? (ada blok direktori cabang, atau sedang diedit)
-needsBranches :: Bool -> Page -> Bool
-needsBranches edit pg = edit || any ((== "branchdir") . bType) (pageBlocks pg)
-
--- | Halaman builder. @extra@ dirender di bawah blok (dipakai daftar artikel di Blog).
-pageView :: Ctx -> Page -> Bool -> PageData -> Html () -> Html ()
-pageView c pg edit pd extra =
+-- | Halaman builder. @posts@ = artikel terbaru untuk blok "Artikel terbaru";
+-- @extra@ dirender di bawah blok (dipakai daftar artikel di Blog).
+pageView :: Ctx -> Page -> Bool -> [Post] -> Html () -> Html ()
+pageView c pg edit posts extra =
   siteLayoutMeta c (pageSlug pg) meta bodyAttrs $ do
     when edit (editorBar c pg)
     main_ [class_ "site-main"] $ do
@@ -55,10 +44,10 @@ pageView c pg edit pd extra =
             " — hanya terlihat oleh Admin & Editor. "
             a_ [href_ ("/admin/pages/" <> pageSlug pg <> "/settings")] "Terbitkan di pengaturan halaman"
 
-      div_ [id_ "pb-canvas"] (mapM_ (renderBlock edit pd) (pageBlocks pg))
+      div_ [id_ "pb-canvas"] (mapM_ (renderBlock edit posts) (pageBlocks pg))
       extra
     if edit
-      then editorPalette c pd
+      then editorPalette c posts
       else when canEdit $
         a_ [href_ (pagePath (pageSlug pg) <> "?edit=1"), target_ "_blank", rel_ "noopener", class_ "pb-fab"] $ do
           icon "fa-solid fa-pen"
@@ -139,11 +128,8 @@ catIcon slug = maybe "fa-regular fa-folder" snd (find ((`T.isInfixOf` slug) . fs
 
 -- Blok ---------------------------------------------------------------------------------
 
-renderBlock :: Bool -> PageData -> Block -> Html ()
-renderBlock edit pd b = case bType b of
-  "branchdir" -> section $ do
-    sectionHead fs
-    branchDirectory edit (pdSite pd) (pdBranches pd)
+renderBlock :: Bool -> [Post] -> Block -> Html ()
+renderBlock edit posts b = case bType b of
   "hero" -> sectionWith heroCls $ do
     when edit $
       span_
@@ -211,15 +197,6 @@ renderBlock edit pd b = case bType b of
       txt fs h2_ [] "title" "Judul ajakan"
       txt fs p_ [class_ "ml"] "text" "Kalimat pendukung"
     btnLink fs "btn btn-lg btn-light" "btn" "href"
-  "branches" -> section $ do
-    sectionHead fs
-    itemsOf "pb-grid" "pb-card branch" $ \it -> do
-      div_ [class_ "branch-top"] $ do
-        span_ [class_ "pb-ico"] (icon "fa-solid fa-building")
-        txt it h3_ [] "title" "Nama cabang"
-      infoLine it "fa-solid fa-location-dot" "address" "Alamat"
-      infoLine it "fa-solid fa-phone" "phone" "Telepon"
-      infoLine it "fa-regular fa-clock" "hours" "Jam buka"
   "posts" -> section $ do
     sectionHead fs
     when edit $
@@ -422,7 +399,6 @@ renderBlock edit pd b = case bType b of
         codeFrame (fieldOf "html" fs) (fieldOf "css" fs) (fieldOf "js" fs)
   _ -> mempty
   where
-    posts = pdPosts pd
     fs = bFields b
     countT = let v = fieldOf "count" fs in if T.null v then "3" else v
     intervalT = let v = fieldOf "interval" fs in if T.null v then "5" else v
@@ -569,13 +545,6 @@ renderBlock edit pd b = case bType b of
         wrapItem :: Fields -> Html ()
         wrapItem it = div_ ([class_ itemCls] <> [data_ "item" "" | edit]) (one it)
 
-    infoLine :: Fields -> Text -> Text -> Text -> Html ()
-    infoLine m ic name ph =
-      when (edit || not (isBlank (fieldOf name m))) $
-        p_ [class_ "info-line"] $ do
-          icon ic
-          txt m span_ [class_ "ml"] name ph
-
     infoCard :: Text -> Text -> Text -> Html ()
     infoCard ic label name =
       when (edit || not (isBlank (fieldOf name fs))) $
@@ -618,8 +587,8 @@ editorBar c pg =
       a_ [href_ (pagePath (pageSlug pg)), class_ "btn btn-ghost btn-sm"] (icon "fa-solid fa-eye" >> "Selesai")
       button_ [type_ "button", id_ "pb-save", class_ "btn btn-sm"] (icon "fa-solid fa-floppy-disk" >> "Simpan")
 
-editorPalette :: Ctx -> PageData -> Html ()
-editorPalette c pd = do
+editorPalette :: Ctx -> [Post] -> Html ()
+editorPalette c posts = do
   let st = cSettings c
   aside_ [class_ "pb-palette", data_ "palette" ""] $ do
     h2_ "Tambah blok"
@@ -636,7 +605,7 @@ editorPalette c pd = do
       p_ (icon "fa-solid fa-grip-vertical" >> " Seret pegangan untuk memindahkan blok atau item.")
       p_ (icon "fa-regular fa-keyboard" >> " Ctrl+S untuk menyimpan.")
   forM_ blockSpecs $ \sp ->
-    term "template" [data_ "tpl" (spType sp)] (renderBlock True pd (spDefault sp))
+    term "template" [data_ "tpl" (spType sp)] (renderBlock True posts (spDefault sp))
   script_ [src_ (staticUrl (envStatic (cEnv c)) "builder.js"), defer_ "defer"] ("" :: Text)
 
 -- | Pengaturan tampilan situs (gaya, ukuran, logo, navigasi, footer). Nilai dibaca
@@ -772,134 +741,5 @@ faqJsonLd qa =
                  , "acceptedAnswer" .= object ["@type" .= ("Answer" :: Text), "text" .= a]
                  ]
              | (q, a) <- qa
-             ]
-      ]
-
--- Direktori cabang ------------------------------------------------------------------------
-
--- | Daftar cabang dari menu Cabang: dikelompokkan per provinsi (urutan sesuai urutan
--- cabang), dengan pencarian & filter provinsi (static/app.js, [data-branch-dir]).
--- Tanpa JavaScript semua cabang tetap tampil.
-branchDirectory :: Bool -> Text -> [Branch] -> Html ()
-branchDirectory edit site branches = do
-  when edit $
-    p_ [class_ "pb-locked-note"] $ do
-      icon "fa-solid fa-lock"
-      " Daftar cabang diisi otomatis dari menu "
-      a_ [href_ "/admin/branches", target_ "_blank", rel_ "noopener"] "Cabang"
-      " di dashboard."
-  if null branches
-    then emptyState "Belum ada cabang."
-    else div_ [class_ "bd", data_ "branch-dir" ""] $ do
-      let groups = groupProv branches
-          total = length branches
-          summary = tshow total <> " outlet di " <> tshow (length groups) <> " provinsi"
-      div_ [class_ "bd-toolbar"] $ do
-        label_ [class_ "bd-search"] $ do
-          icon "fa-solid fa-magnifying-glass"
-          input_ [type_ "search", data_ "bd-search" "", placeholder_ "Cari kota, nama outlet, atau alamat…", makeAttribute "aria-label" "Cari cabang", makeAttribute "autocomplete" "off"]
-        label_ [class_ "bd-select"] $ do
-          span_ [class_ "sr-only"] "Provinsi"
-          select_ [data_ "bd-prov" "", makeAttribute "aria-label" "Pilih provinsi"] $ do
-            option_ [value_ ""] (toHtml ("Semua provinsi (" <> tshow total <> ")"))
-            forM_ groups $ \(p, bs) -> option_ [value_ p] (toHtml (p <> " (" <> tshow (length bs) <> ")"))
-        when (any (isJust . brLat) branches) $
-          button_ [type_ "button", class_ "btn bd-near", data_ "bd-near" "", makeAttribute "aria-pressed" "false"] $ do
-            icon "fa-solid fa-location-crosshairs"
-            span_ [data_ "bd-near-label" ""] "Urutkan dari terdekat"
-      p_ [class_ "bd-count", data_ "bd-count" "", data_ "total" summary, role_ "status", makeAttribute "aria-live" "polite"] (toHtml ("Menampilkan " <> summary))
-      p_ [class_ "bd-geo-msg", data_ "bd-geo-msg" "", makeAttribute "hidden" ""] ""
-      -- Mode "terdekat": kartu dipindah ke sini (satu daftar urut jarak), kelompok disembunyikan.
-      div_ [class_ "bd-grid bd-flat", data_ "bd-flat" "", makeAttribute "hidden" ""] ""
-      let numbered = zip [1 :: Int ..] [b | (_, bs) <- groups, b <- bs]
-      forM_ groups $ \(p, bs) ->
-        section_ [class_ "bd-group", data_ "bd-group" p] $ do
-          div_ [class_ "bd-group-head"] $ do
-            h3_ (toHtml p)
-            span_ [class_ "bd-group-n", data_ "bd-group-n" ""] (toHtml (tshow (length bs) <> " outlet"))
-          div_ [class_ "bd-grid"] $
-            forM_ [(n, b) | (n, b) <- numbered, brId b `elem` map brId bs] (uncurry (branchCard site))
-      div_ [class_ "bd-empty", data_ "bd-empty" "", makeAttribute "hidden" ""] $ do
-        icon "fa-regular fa-map"
-        p_ "Tidak ada cabang yang cocok. Coba kata kunci lain atau pilih provinsi lain."
-      unless edit $ script_ [type_ "application/ld+json"] (branchesJsonLd site branches)
-
-branchCard :: Text -> Int -> Branch -> Html ()
-branchCard site n Branch {..} =
-  article_
-    ( [class_ "bd-card", data_ "bd-item" "", data_ "q" (T.toLower (T.unwords [brName, brCity, brProvince, brAddress, brPhone]))]
-        <> concat [[data_ "lat" (tshow la), data_ "lng" (tshow lo)] | Just la <- [brLat], Just lo <- [brLng]]
-    )
-    $ do
-      div_ [class_ "bd-card-top"] $ do
-        span_ [class_ "bd-num", data_ "bd-num" "", makeAttribute "aria-label" ("Nomor " <> tshow n)] (toHtml (tshow n))
-        span_ [class_ "bd-city"] (icon "fa-solid fa-location-dot" >> toHtml (if T.null brCity then brProvince else brCity))
-        unless (isBlank brNote) $ span_ [class_ "bd-badge"] (toHtml brNote)
-      cardBody
-  where
-   cardBody = do
-    h4_ [class_ "bd-name"] $ do
-      toHtml brName
-      span_ [class_ "bd-dist", data_ "bd-dist" "", makeAttribute "hidden" ""] ""
-    ul_ [class_ "bd-info"] $ do
-      li_ (icon "fa-regular fa-map" >> span_ (toHtml brAddress))
-      unless (isBlank brHours) $ li_ (icon "fa-regular fa-clock" >> span_ (toHtml brHours))
-      unless (isBlank brPhone) $
-        li_ $ do
-          icon "fa-solid fa-phone"
-          span_ $ do
-            a_ [href_ ("tel:+" <> waNumber brPhone)] (toHtml (fmtPhone brPhone))
-            unless (isBlank brPhone2) $ do
-              " · "
-              a_ [href_ ("tel:+" <> waNumber brPhone2)] (toHtml (fmtPhone brPhone2))
-    div_ [class_ "bd-actions"] $ do
-      let wa = if isBlank brWhatsapp then waNumber brPhone else T.filter isDigit brWhatsapp
-          msg = "Halo " <> site <> " cabang " <> brName <> ", saya ingin bertanya."
-      unless (T.null wa) $
-        a_ [href_ ("https://wa.me/" <> wa <> "?text=" <> urlEnc msg), target_ "_blank", rel_ "noopener", class_ "btn btn-sm bd-wa"] $
-          icon "fa-brands fa-whatsapp" >> "WhatsApp"
-      unless (isBlank brMapsQuery) $
-        button_ [type_ "button", class_ "btn btn-ghost btn-sm", data_ "map-q" brMapsQuery, data_ "map-title" brName, data_ "map-url" brMapsUrl] $
-          icon "fa-regular fa-map" >> "Lihat peta"
-      unless (isBlank brMapsUrl) $
-        a_ [href_ brMapsUrl, target_ "_blank", rel_ "noopener", class_ "btn btn-ghost btn-sm bd-route", title_ "Petunjuk arah di Google Maps"] $
-          icon "fa-solid fa-diamond-turn-right" >> "Rute"
-
--- | Kelompokkan per provinsi, urutan kelompok mengikuti cabang pertamanya.
-groupProv :: [Branch] -> [(Text, [Branch])]
-groupProv bs =
-  [ (p, [b | b <- bs, prov b == p]) | p <- nubOrd (map prov bs) ]
-  where
-    prov b = if isBlank (brProvince b) then "Lainnya" else brProvince b
-    nubOrd = go []
-      where
-        go _ [] = []
-        go seen (x : xs) = if x `elem` seen then go seen xs else x : go (x : seen) xs
-
-urlEnc :: Text -> Text
-urlEnc = TE.decodeUtf8 . urlEncode True . TE.encodeUtf8
-
--- | Data terstruktur: tiap cabang sebagai Store (alamat, telepon, peta).
-branchesJsonLd :: Text -> [Branch] -> Text
-branchesJsonLd site bs =
-  T.replace "<" "\\u003c" . TE.decodeUtf8 . BL.toStrict . encode $
-    object
-      [ "@context" .= ("https://schema.org" :: Text)
-      , "@graph"
-          .= [ object $
-                 [ "@type" .= ("Store" :: Text)
-                 , "name" .= (site <> " " <> brName b)
-                 , "address"
-                     .= object
-                       [ "@type" .= ("PostalAddress" :: Text)
-                       , "streetAddress" .= brAddress b
-                       , "addressLocality" .= brCity b
-                       , "addressRegion" .= brProvince b
-                       , "addressCountry" .= ("ID" :: Text)
-                       ]
-                 ]
-                   ++ ["telephone" .= ("+" <> waNumber (brPhone b)) | not (isBlank (brPhone b))]
-                   ++ ["hasMap" .= brMapsUrl b | not (isBlank (brMapsUrl b))]
-             | b <- bs
              ]
       ]

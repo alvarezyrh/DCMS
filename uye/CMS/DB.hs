@@ -4,7 +4,6 @@ module CMS.DB where
 import Control.Concurrent.MVar
 import Control.Monad (forM_, void, when)
 import Data.List (nubBy)
-import qualified Data.Map.Strict as M
 import Data.Maybe (catMaybes, fromMaybe, listToMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -12,7 +11,6 @@ import Database.SQLite.Simple
 import Database.SQLite.Simple.ToField (toField)
 
 import CMS.Blocks
-import CMS.BranchSeed (seedBranches)
 import CMS.NavStyle (decodeNav, encodeNav)
 import CMS.Types
 import CMS.Util (tshow)
@@ -51,44 +49,17 @@ migrate conn = do
                 \ engine TEXT NOT NULL DEFAULT '', views INTEGER NOT NULL DEFAULT 0,\
                 \ PRIMARY KEY (day, path, source, engine))"
   execute_ conn "DELETE FROM page_views WHERE day < date('now', '-400 days')"
-  -- Cabang/outlet.
-  execute_ conn "CREATE TABLE IF NOT EXISTS branches (\
+  -- Log keamanan (menu Log), disimpan 180 hari.
+  execute_ conn "CREATE TABLE IF NOT EXISTS security_log (\
                 \ id INTEGER PRIMARY KEY AUTOINCREMENT,\
-                \ name TEXT NOT NULL, city TEXT NOT NULL DEFAULT '', province TEXT NOT NULL DEFAULT '',\
-                \ address TEXT NOT NULL DEFAULT '', phone TEXT NOT NULL DEFAULT '', phone2 TEXT NOT NULL DEFAULT '',\
-                \ whatsapp TEXT NOT NULL DEFAULT '', hours TEXT NOT NULL DEFAULT '', note TEXT NOT NULL DEFAULT '',\
-                \ maps_url TEXT NOT NULL DEFAULT '', maps_query TEXT NOT NULL DEFAULT '',\
-                \ sort_order INTEGER NOT NULL DEFAULT 0, active INTEGER NOT NULL DEFAULT 1,\
-                \ updated_at TEXT NOT NULL DEFAULT (datetime('now')))"
-  execute_ conn "CREATE INDEX IF NOT EXISTS idx_branches_order ON branches(sort_order, id)"
-  forM_ ["lat", "lng"] $ \col -> do
-    has <- count1 conn "SELECT COUNT(*) FROM pragma_table_info('branches') WHERE name = ?" (Only (col :: Text))
-    when (has == 0) $ execute_ conn (Query ("ALTER TABLE branches ADD COLUMN " <> col <> " REAL"))
-  -- Data awal cabang: sekali saja (ditandai), agar tidak muncul lagi bila sengaja dihapus semua.
-  seeded <- count1 conn "SELECT COUNT(*) FROM settings WHERE key = 'branches_seeded'" ()
-  when (seeded == 0) $ withTransaction conn $ do
-    n <- count1 conn "SELECT COUNT(*) FROM branches" ()
-    when (n == 0) $ mapM_ (void . createBranch conn) seedBranches
-    execute_ conn "INSERT OR REPLACE INTO settings (key, value) VALUES ('branches_seeded', '1')"
-    execute_ conn "INSERT OR REPLACE INTO settings (key, value) VALUES ('branches_geo_v1', '1')"
-  -- Urutan cabang dimulai dari 1 (versi awal memakai kelipatan 10). Sekali saja.
-  renum <- count1 conn "SELECT COUNT(*) FROM settings WHERE key = 'branches_sort_v2'" ()
-  when (renum == 0) $ withTransaction conn $ do
-    ids <- query_ conn "SELECT id FROM branches ORDER BY sort_order, id" :: IO [Only Int]
-    forM_ (zip [1 :: Int ..] ids) $ \(i, Only bid) -> execute conn "UPDATE branches SET sort_order = ? WHERE id = ?" (i, bid)
-    execute_ conn "INSERT OR REPLACE INTO settings (key, value) VALUES ('branches_sort_v2', '1')"
-  -- Cabang hasil data awal versi sebelumnya: isi koordinat & perbaiki tautan peta yang
-  -- salah di sumber. Hanya baris yang cocok persis dan belum punya koordinat.
-  geoDone <- count1 conn "SELECT COUNT(*) FROM settings WHERE key = 'branches_geo_v1'" ()
-  when (geoDone == 0) $ withTransaction conn $ do
-    forM_ seedBranches $ \BranchInput {..} ->
-      execute
-        conn
-        "UPDATE branches SET lat = ?, lng = ?,\
-        \ maps_url = CASE WHEN ? LIKE 'https://www.google.com/maps/search/%' THEN ? ELSE maps_url END\
-        \ WHERE name = ? AND address = ? AND lat IS NULL"
-        (biLat, biLng, biMapsUrl, biMapsUrl, biName, biAddress)
-    execute_ conn "INSERT OR REPLACE INTO settings (key, value) VALUES ('branches_geo_v1', '1')"
+                \ at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),\
+                \ level TEXT NOT NULL, event TEXT NOT NULL, ip TEXT NOT NULL DEFAULT '',\
+                \ actor TEXT NOT NULL DEFAULT '', account TEXT NOT NULL DEFAULT '',\
+                \ method TEXT NOT NULL DEFAULT '', path TEXT NOT NULL DEFAULT '',\
+                \ user_agent TEXT NOT NULL DEFAULT '', detail TEXT NOT NULL DEFAULT '')"
+  execute_ conn "CREATE INDEX IF NOT EXISTS idx_security_log_at ON security_log(at)"
+  execute_ conn "CREATE INDEX IF NOT EXISTS idx_security_log_ip ON security_log(ip, at)"
+  execute_ conn "DELETE FROM security_log WHERE at < datetime('now', 'localtime', '-180 days')"
   -- API Gateway: key (hash) dan statistik pemakaian harian.
   execute_ conn "CREATE TABLE IF NOT EXISTS api_keys (\
                 \ id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL,\
@@ -114,6 +85,7 @@ migrate conn = do
   -- Gambar contoh pindah dari /static ke /asset/img.
   execute_ conn "UPDATE pages SET blocks = REPLACE(blocks, '/static/placeholder.svg', '/asset/img/placeholder.svg')\
                 \ WHERE blocks LIKE '%/static/placeholder.svg%'"
+  dropBranches conn
   where
     schema =
       [ "CREATE TABLE IF NOT EXISTS users (\
@@ -502,19 +474,20 @@ seedPages c = do
     forM_ (zip [1 :: Int ..] sitePages) $ \(i, sp) ->
       execute c "UPDATE pages SET menu_order = ?, icon = CASE WHEN icon = '' THEN ? ELSE icon END WHERE slug = ?" (i, defaultPageIcon (spSlug sp), spSlug sp)
     execute_ c "INSERT OR REPLACE INTO settings (key, value) VALUES ('pages_menu_v1', '1')"
-  -- Sekali saja: halaman Branch memakai direktori cabang otomatis (dari menu Cabang)
-  -- menggantikan blok "Daftar cabang" yang diisi manual. Judulnya dipertahankan.
-  done <- count1 c "SELECT COUNT(*) FROM settings WHERE key = 'branch_page_dir'" ()
-  when (done == 0) $ do
-    mp <- findPage c "branch"
-    forM_ mp $ \pg -> do
-      let toDir b
-            | bType b == "branches" = b {bType = "branchdir", bFields = M.filterWithKey (\k _ -> k `elem` ["eyebrow", "title", "text"]) (bFields b), bItems = []}
-            | otherwise = b
-          blocks = map toDir (pageBlocks pg)
-          blocks' = if any ((== "branchdir") . bType) blocks then blocks else blocks ++ [Block "branchdir" (M.fromList [("eyebrow", ""), ("title", "Lokasi kami"), ("text", "")]) []]
-      savePageBlocks c "branch" blocks'
-    execute_ c "INSERT OR REPLACE INTO settings (key, value) VALUES ('branch_page_dir', '1')"
+
+-- | Sisa fitur cabang yang sudah dihapus: tabel, penanda migrasi, halaman Branch, dan
+-- blok cabang di halaman lain. Hanya jalan selama tabel lamanya masih ada.
+dropBranches :: Connection -> IO ()
+dropBranches c = do
+  old <- count1 c "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'branches'" ()
+  when (old > 0) $ withTransaction c $ do
+    execute_ c "DELETE FROM pages WHERE slug = 'branch'"
+    pages <- listPages c
+    forM_ pages $ \pg ->
+      let isBranch b = bType b `elem` ["branches", "branchdir"]
+       in when (any isBranch (pageBlocks pg)) $ savePageBlocks c (pageSlug pg) (filter (not . isBranch) (pageBlocks pg))
+    execute_ c "DELETE FROM settings WHERE key IN ('branches_seeded', 'branches_geo_v1', 'branches_sort_v2', 'branch_page_dir')"
+    execute_ c "DROP TABLE branches"
 
 -- | Selisih hari untuk fungsi tanggal SQLite, mis. 7 -> "+7 days", -30 -> "-30 days".
 sqlDays :: Int -> Text
@@ -675,55 +648,6 @@ sitemapPosts :: Connection -> IO [(Text, Text)]
 sitemapPosts c =
   query_ c "SELECT slug, date(updated_at) FROM posts WHERE status = 'published' AND seo_noindex = 0 ORDER BY published_at DESC"
 
--- Cabang ------------------------------------------------------------------------------
-
-branchSelect :: Query
-branchSelect =
-  "SELECT id, name, city, province, address, phone, phone2, whatsapp, hours, note, maps_url, maps_query,\
-  \ sort_order, active, updated_at, lat, lng FROM branches"
-
--- | Semua cabang (dashboard), urut sesuai urutan tampil.
-listBranches :: Connection -> IO [Branch]
-listBranches c = query_ c (branchSelect <> " ORDER BY sort_order, id")
-
--- | Cabang aktif (halaman publik).
-listActiveBranches :: Connection -> IO [Branch]
-listActiveBranches c = query_ c (branchSelect <> " WHERE active = 1 ORDER BY sort_order, id")
-
-findBranch :: Connection -> Int -> IO (Maybe Branch)
-findBranch c i = listToMaybe <$> query c (branchSelect <> " WHERE id = ?") (Only i)
-
-branchFields :: BranchInput -> [SQLData]
-branchFields BranchInput {..} =
-  [ toField biName, toField biCity, toField biProvince, toField biAddress, toField biPhone, toField biPhone2
-  , toField biWhatsapp, toField biHours, toField biNote, toField biMapsUrl, toField biMapsQuery
-  , toField biSort, toField biActive, toField biLat, toField biLng ]
-
-createBranch :: Connection -> BranchInput -> IO Int
-createBranch c b = do
-  execute
-    c
-    "INSERT INTO branches (name, city, province, address, phone, phone2, whatsapp, hours, note,\
-    \ maps_url, maps_query, sort_order, active, lat, lng) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
-    (branchFields b)
-  lastId c
-
-updateBranch :: Connection -> Int -> BranchInput -> IO ()
-updateBranch c i b =
-  execute
-    c
-    "UPDATE branches SET name = ?, city = ?, province = ?, address = ?, phone = ?, phone2 = ?, whatsapp = ?,\
-    \ hours = ?, note = ?, maps_url = ?, maps_query = ?, sort_order = ?, active = ?, lat = ?, lng = ?,\
-    \ updated_at = datetime('now') WHERE id = ?"
-    (branchFields b ++ [toField i])
-
-deleteBranch :: Connection -> Int -> IO ()
-deleteBranch c i = execute c "DELETE FROM branches WHERE id = ?" (Only i)
-
--- | Urutan berikutnya untuk cabang baru (di paling akhir).
-nextBranchSort :: Connection -> IO Int
-nextBranchSort c = maybe 1 ((+ 1) . fromOnly) . listToMaybe <$> query_ c "SELECT COALESCE(MAX(sort_order), 0) FROM branches"
-
 -- API Gateway --------------------------------------------------------------------------------
 
 apiKeySelect :: Query
@@ -777,9 +701,59 @@ apiUsageByKey c days =
   query c "SELECT key_id, SUM(hits) FROM api_usage WHERE day > date('now','localtime', ?) GROUP BY key_id"
     (Only (sqlDays (-days)))
 
--- | Pemakaian per hari (semua API): (tanggal, berhasil, gagal).
 getApiConfig :: Connection -> IO Text
 getApiConfig c = maybe "" fromOnly . listToMaybe <$> query_ c "SELECT value FROM settings WHERE key = 'api_config'"
 
 saveApiConfig :: Connection -> Text -> IO ()
 saveApiConfig c v = execute c "INSERT OR REPLACE INTO settings (key, value) VALUES ('api_config', ?)" (Only v)
+
+-- Log keamanan -----------------------------------------------------------------------
+
+-- | (tingkat, peristiwa, ip, pelaku, akun, metode, alamat, user agent, keterangan)
+insertLog :: Connection -> (Text, Text, Text, Text, Text, Text, Text, Text, Text) -> IO ()
+insertLog c =
+  execute
+    c
+    "INSERT INTO security_log (level, event, ip, actor, account, method, path, user_agent, detail)\
+    \ VALUES (?,?,?,?,?,?,?,?,?)"
+
+-- | Log terbaru sesuai filter, beserta jumlah totalnya.
+listLogs :: Connection -> LogFilter -> Int -> Int -> IO ([LogEntry], Int)
+listLogs c LogFilter {..} page per = do
+  let like = "%" <> lfSearch <> "%"
+      clauses =
+        [("at > datetime('now', 'localtime', ?)", [toField (sqlDays (-lfDays))]) | lfDays > 0]
+          ++ case lfLevel of
+            "" -> []
+            "alert" -> [("level <> 'info'", [])]
+            l -> [("level = ?", [toField l])]
+          ++ [("event = ?", [toField lfEvent]) | not (T.null lfEvent)]
+          ++ [ ("(ip LIKE ? OR actor LIKE ? OR account LIKE ? OR path LIKE ? OR detail LIKE ?)", replicate 5 (toField like))
+             | not (T.null lfSearch)
+             ]
+      wh = if null clauses then "" else " WHERE " <> T.intercalate " AND " (map fst clauses)
+      ps = concatMap snd clauses
+  total <- count1 c (Query ("SELECT COUNT(*) FROM security_log" <> wh)) ps
+  rows <-
+    query
+      c
+      (Query ("SELECT id, at, level, event, ip, actor, account, method, path, user_agent, detail FROM security_log" <> wh <> " ORDER BY id DESC LIMIT ? OFFSET ?"))
+      (ps ++ [toField per, toField ((max 1 page - 1) * per)])
+  pure (rows, total)
+
+-- | Jumlah tiap peristiwa dalam n jam terakhir.
+logCounts :: Connection -> Int -> IO [(Text, Int)]
+logCounts c hours =
+  query c "SELECT event, COUNT(*) FROM security_log WHERE at > datetime('now', 'localtime', ?) GROUP BY event"
+    (Only ("-" <> tshow hours <> " hours"))
+
+-- | IP dengan peristiwa peringatan/bahaya terbanyak n hari terakhir:
+-- (ip, jumlah, login gagal, peristiwa (dipisah koma), terakhir terlihat).
+suspiciousIps :: Connection -> Int -> Int -> IO [(Text, Int, Int, Text, Text)]
+suspiciousIps c days n =
+  query
+    c
+    "SELECT ip, COUNT(*), SUM(event IN ('login_fail', 'login_blocked')), GROUP_CONCAT(DISTINCT event), MAX(at)\
+    \ FROM security_log WHERE level <> 'info' AND ip <> '' AND at > datetime('now', 'localtime', ?)\
+    \ GROUP BY ip ORDER BY 2 DESC, 5 DESC LIMIT ?"
+    (sqlDays (-days), n)

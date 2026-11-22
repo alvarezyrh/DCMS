@@ -55,15 +55,15 @@ seoPage c u SeoData {..} errs = adminLayout c u "seo" "SEO & Analitik" $ do
       bad = length (filter ((== Bad) . scoreLevel) scores)
   -- Ringkasan angka
   div_ [class_ "seo-kpis"] $ do
-    kpi "fa-solid fa-eye" "Kunjungan 30 hari" (fmtInt total) "Pengunjung yang tidak login, tanpa bot"
-    kpi "fa-brands fa-google" "Dari mesin pencari" (fmtInt search) (pctText search total <> " dari semua kunjungan")
+    kpiCard "fa-solid fa-eye" "Kunjungan 30 hari" (fmtInt total) "Pengunjung yang tidak login, tanpa bot"
+    kpiCard "fa-brands fa-google" "Dari mesin pencari" (fmtInt search) (pctText search total <> " dari semua kunjungan")
     div_ [class_ "card kpi kpi-score"] $ do
       scoreRing "ring-md" avg
       div_ $ do
         span_ [class_ "kpi-label"] "Skor SEO rata-rata"
         levelChip (scoreLevel avg)
         small_ [class_ "muted"] (toHtml (fmtInt (length scores) <> " artikel diperiksa"))
-    kpi "fa-solid fa-triangle-exclamation" "Perlu perbaikan" (fmtInt bad) "Artikel dengan skor di bawah 50"
+    kpiCard "fa-solid fa-triangle-exclamation" "Perlu perbaikan" (fmtInt bad) "Artikel dengan skor di bawah 50"
   -- Grafik kunjungan harian
   section_ [class_ "card viz-card"] $ do
     div_ [class_ "viz-head"] $ do
@@ -129,15 +129,6 @@ seoPage c u SeoData {..} errs = adminLayout c u "seo" "SEO & Analitik" $ do
           td_ $ issueSummary checks
           td_ [class_ "right"] $ a_ [href_ ("/admin/posts/" <> tshow (postId p) <> "/edit#seo-panel"), class_ "btn btn-sm"] (icon "fa-solid fa-wand-magic-sparkles" >> "Perbaiki")
   when (isAdmin u) $ integrationCard c errs
-  where
-    kpi :: Text -> Text -> Text -> Text -> Html ()
-    kpi ic label val sub =
-      div_ [class_ "card kpi"] $ do
-        span_ [class_ "kpi-ico"] (icon ic)
-        div_ $ do
-          span_ [class_ "kpi-label"] (toHtml (label :: Text))
-          strong_ [class_ "kpi-value"] (toHtml (val :: Text))
-          small_ [class_ "muted"] (toHtml (sub :: Text))
 
 -- | Dua masalah terpenting (merah dulu), sisanya sebagai jumlah.
 issueSummary :: [Check] -> Html ()
@@ -321,11 +312,6 @@ average xs = round (fromIntegral (sum xs) / fromIntegral (length xs) :: Double)
 -- | Batas atas sumbu yang "bulat": 1, 2, 5 × 10^n.
 niceMax :: Int -> Int
 niceMax v = fromMaybe v (find (>= v) [b * 10 ^ e | e <- [0 :: Int .. 12], b <- [1, 2, 5]])
-
-fmtInt :: Int -> Text
-fmtInt n
-  | n < 0 = "-" <> fmtInt (negate n)
-  | otherwise = T.intercalate "." (reverse (map T.reverse (T.chunksOf 3 (T.reverse (tshow n)))))
 
 pctText :: Int -> Int -> Text
 pctText _ 0 = "0%"

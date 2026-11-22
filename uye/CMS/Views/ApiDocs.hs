@@ -2,7 +2,7 @@
 -- keduanya dibuat dari katalog di CMS.Api sehingga selalu sesuai dengan API sebenarnya.
 module CMS.Views.ApiDocs (apiDocsPage, openApiSpec) where
 
-import Control.Monad (forM_, unless, when)
+import Control.Monad (forM_, unless)
 import Data.Aeson (Value, object, (.=))
 import qualified Data.Aeson.Key as Key
 import Data.Text (Text)
@@ -27,7 +27,7 @@ apiDocsPage c conf =
           div_ [class_ "pb-heading"] $ do
             p_ [class_ "eyebrow"] "Untuk developer"
             h1_ "Dokumentasi API"
-            p_ [class_ "pb-sub"] (toHtml ("Ambil data " <> siteName c <> " (cabang, artikel, dan lainnya) dalam format JSON untuk web atau aplikasi Anda."))
+            p_ [class_ "pb-sub"] (toHtml ("Ambil data " <> siteName c <> " (artikel, kategori, dan lainnya) dalam format JSON untuk web atau aplikasi Anda."))
           div_ [class_ "doc-grid"] $ do
             aside_ [class_ "doc-nav"] $ do
               a_ [href_ "#mulai"] "Mulai"
@@ -44,7 +44,7 @@ apiDocsPage c conf =
                   ". Semua jawaban berupa JSON (UTF-8). Spesifikasi lengkap tersedia sebagai "
                   a_ [href_ "/api/openapi.json"] "OpenAPI 3"
                   " untuk diimpor ke Postman, Insomnia, atau generator SDK."
-                codeBlock ("curl " <> (if needKey then "-H \"X-API-Key: KEY_ANDA\" " else "") <> "\"" <> origin <> "/api/v1/branches?per_page=3\"")
+                codeBlock ("curl " <> (if needKey then "-H \"X-API-Key: KEY_ANDA\" " else "") <> "\"" <> origin <> "/api/v1/posts?per_page=3\"")
               docSection "autentikasi" "Autentikasi" $ do
                 if needKey
                   then do
@@ -97,22 +97,10 @@ apiDocsPage c conf =
                             td_ (code_ (toHtml n))
                             td_ [class_ "muted"] (toHtml t)
                             td_ (toHtml d)
-                  when (adKey a == "branches") $ do
-                    h3_ "Contoh: cabang terdekat dari pengguna (JavaScript)"
-                    codeBlock $
-                      T.unlines
-                        [ "navigator.geolocation.getCurrentPosition(async (pos) => {"
-                        , "  const near = `${pos.coords.latitude},${pos.coords.longitude}`;"
-                        , "  const res = await fetch(`" <> origin <> "/api/v1/branches?near=${near}&per_page=5`"
-                            <> (if apiPublic conf "branches" then ");" else ", {")
-                        ]
-                        <> (if apiPublic conf "branches" then "" else "    headers: { \"X-API-Key\": \"KEY_ANDA\" },\n  });\n")
-                        <> "  const { data } = await res.json();\n  data.forEach((b, i) => console.log(`${i + 1}. ${b.name} — ${b.distance_km} km`));\n});"
   where
     statusRows :: [(Text, Text)]
     statusRows =
       [ ("200", "Berhasil")
-      , ("400", "Parameter tidak valid (mis. near salah format)")
       , ("401", "API key wajib, tidak valid, atau dinonaktifkan")
       , ("403", "API key tidak diizinkan memakai API ini")
       , ("404", "Data/endpoint tidak ada, atau API sedang dimatikan")

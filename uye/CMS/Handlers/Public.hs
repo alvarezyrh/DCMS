@@ -15,6 +15,7 @@ import Network.Wai (Response, responseLBS)
 import CMS.Auth
 import CMS.Blocks (Page (..), pagePath, postsWanted)
 import CMS.DB
+import CMS.Log (Event (..), logEvent)
 import CMS.RateLimit (blockedFor, clearKeys, recordFailure)
 import CMS.Types
 import CMS.Util
@@ -52,8 +53,7 @@ sitePage c slug =
     Just pg | visible c pg -> do
       let edit = editMode c
       posts <- latestPosts c (if edit then 6 else postsWanted (pageBlocks pg))
-      pd <- pageData c pg edit posts
-      ok (pageView c pg edit pd mempty)
+      ok (pageView c pg edit posts mempty)
     _ -> notFound c
 
 -- | Halaman terbit untuk semua orang; draf hanya untuk Admin/Editor.
@@ -81,15 +81,8 @@ blogPage c =
         (posts, total) <- if instant then pure (firstPage, allTotal) else listPosts db catFlt ByPublished page per
         pure BlogList {blCats = cats, blPosts = posts, blQuery = q, blActive = active, blInstant = instant, blAll = allTotal, blPage = page, blPages = totalPages total per}
       latest <- latestPosts c (if edit then 6 else postsWanted (pageBlocks pg))
-      pd <- pageData c pg edit latest
-      ok (pageView c pg edit pd (blogListing edit bl))
+      ok (pageView c pg edit latest (blogListing edit bl))
     _ -> notFound c
-
--- | Data dinamis untuk blok halaman; cabang hanya diambil bila dipakai.
-pageData :: Ctx -> Page -> Bool -> [Post] -> IO PageData
-pageData c pg edit posts = do
-  bs <- if needsBranches edit pg then withDb (cEnv c) listActiveBranches else pure []
-  pure (PageData posts bs (setSiteName (cSettings c)))
 
 categoryArchive :: Ctx -> Text -> IO Response
 categoryArchive c slug = do
@@ -133,11 +126,13 @@ login c = do
       -- Maks. 5 salah per (IP, akun), 10 per akun dari mana pun, 30 per IP; per 15 menit.
       rules = [("ipacct:" <> ip <> "|" <> acct, 5), ("acct:" <> acct, 10), ("ip:" <> ip, 30)]
       keys = map fst rules
-      bad msg = do
+      bad why = do
         recordFailure lim keys
-        pure $ htmlResp status401 (loginPage c [msg] ident next)
+        logEvent c LoginFail acct why
+        pure $ htmlResp status401 (loginPage c ["Username/email atau password salah."] ident next)
   blockedFor lim rules >>= \case
-    Just secs ->
+    Just secs -> do
+      logEvent c LoginBlocked acct ("Dikunci " <> tshow ((secs + 59) `div` 60) <> " menit lagi")
       pure . htmlResp status429 $
         loginPage c ["Terlalu banyak percobaan login yang salah. Coba lagi dalam " <> tshow ((secs + 59) `div` 60) <> " menit."] ident next
     Nothing -> do
@@ -146,9 +141,12 @@ login c = do
         Just u
           | checkPassword pw (userHash u) ->
               if not (userActive u)
-                then pure $ htmlResp status401 (loginPage c ["Akun Anda dinonaktifkan. Hubungi administrator."] ident next)
+                then do
+                  logEvent c LoginInactive (userName u) ""
+                  pure $ htmlResp status401 (loginPage c ["Akun Anda dinonaktifkan. Hubungi administrator."] ident next)
                 else do
                   clearKeys lim (take 2 keys)
+                  logEvent c LoginOk (userName u) (roleLabel (userRole u))
                   tok <- randomToken
                   withDb (cEnv c) $ \db -> do
                     purgeExpiredSessions db
@@ -158,11 +156,11 @@ login c = do
                     . addHeader (cookieHeader (sidCookie (cEnv c)) (TE.encodeUtf8 tok) (Just (fromIntegral (sessionDays * 86400))))
                     . withFlash "success" ("Selamat datang, " <> userShownName u <> "!")
                     $ redirectTo next
-        Just _ -> bad "Username/email atau password salah."
+        Just _ -> bad "Password salah"
         Nothing -> do
           -- Tetap lakukan kerja bcrypt agar waktu respons tidak membocorkan user yang ada.
           void (hashPassword pw)
-          bad "Username/email atau password salah."
+          bad "Akun tidak terdaftar"
 
 logout :: Ctx -> IO Response
 logout c = do
@@ -192,6 +190,7 @@ register c
         else do
           h <- hashPassword pw
           void $ withDb (cEnv c) $ \db -> createUser db uname email h RUser display True
+          logEvent c Register uname email
           redirectFlash "/login" "success" "Akun berhasil dibuat. Silakan masuk."
 
 closed :: Ctx -> IO Response

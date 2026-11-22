@@ -53,7 +53,7 @@ import CMS.Util (clampInt, readInt)
 
 type Fields = M.Map Text Text
 
--- | Satu blok: jenisnya, isian teks/atribut, dan daftar item (kartu, cabang, dst.).
+-- | Satu blok: jenisnya, isian teks/atribut, dan daftar item (kartu, slide, dst.).
 data Block = Block
   { bType :: Text
   , bFields :: Fields
@@ -146,9 +146,6 @@ blockSpecs =
       blk "stats" [] [item [("value", "100+"), ("label", "Klien")], item [("value", "10"), ("label", "Tahun")], item [("value", "24/7"), ("label", "Dukungan")]]
   , BlockSpec "cta" "Ajakan (CTA)" "fa-solid fa-bullhorn" ["title", "text", "btn", "href"] [] $
       blk "cta" [("title", "Siap bekerja sama?"), ("text", "Hubungi kami hari ini."), ("btn", "Hubungi kami"), ("href", "/contact")] []
-  , BlockSpec "branches" "Daftar cabang" "fa-solid fa-location-dot" ["eyebrow", "title", "text"] ["title", "address", "phone", "hours"] $
-      blk "branches" [("eyebrow", "Cabang"), ("title", "Kantor kami"), ("text", "")]
-        [item [("title", "Nama cabang"), ("address", "Alamat lengkap"), ("phone", "(021) 000-0000"), ("hours", "Senin–Jumat, 08.00–17.00")]]
   , BlockSpec "posts" "Artikel terbaru" "fa-regular fa-newspaper" ["eyebrow", "title", "count", "btn", "href"] [] $
       blk "posts" [("eyebrow", "Blog"), ("title", "Artikel terbaru"), ("count", "3"), ("btn", "Lihat semua artikel"), ("href", "/blog")] []
   , BlockSpec "contact" "Info kontak" "fa-solid fa-address-card" ["eyebrow", "title", "text", "address", "phone", "email", "hours", "btn"] [] $
@@ -161,8 +158,6 @@ blockSpecs =
         ]
   , BlockSpec "image" "Gambar" "fa-regular fa-image" ["src", "alt", "caption"] [] $
       blk "image" [("src", placeholder), ("alt", ""), ("caption", "Keterangan gambar")] []
-  , BlockSpec "branchdir" "Direktori cabang" "fa-solid fa-store" ["eyebrow", "title", "text"] [] $
-      blk "branchdir" [("eyebrow", "Lokasi kami"), ("title", "Temukan outlet terdekat"), ("text", "Datang langsung ke cabang kami di kota Anda.")] []
   , BlockSpec "testimonials" "Testimoni" "fa-solid fa-quote-left" ["eyebrow", "title", "text"] ["text", "title", "role", "rating", "src", "alt"] $
       blk "testimonials" [("eyebrow", "Testimoni"), ("title", "Kata mereka tentang kami"), ("text", "")]
         [ item [("text", "Pelayanannya cepat dan hasilnya melebihi harapan. Sangat direkomendasikan!"), ("title", "Rina Wijaya"), ("role", "Pemilik, Toko Rina"), ("rating", "5"), ("src", ""), ("alt", "")]
@@ -354,7 +349,7 @@ sitePages =
           , item [("icon", "fa-solid fa-shield-halved"), ("title", "Aman & andal"), ("text", "Proses kerja terdokumentasi dengan standar keamanan yang jelas.")]
           , item [("icon", "fa-solid fa-hand-holding-heart"), ("title", "Layanan personal"), ("text", "Satu kontak khusus yang memahami bisnis Anda.")]
           ]
-      , blk "stats" [] [item [("value", "250+"), ("label", "Klien aktif")], item [("value", "12"), ("label", "Tahun pengalaman")], item [("value", "8"), ("label", "Kantor cabang")], item [("value", "98%"), ("label", "Klien puas")]]
+      , blk "stats" [] [item [("value", "250+"), ("label", "Klien aktif")], item [("value", "12"), ("label", "Tahun pengalaman")], item [("value", "24/7"), ("label", "Dukungan")], item [("value", "98%"), ("label", "Klien puas")]]
       , blk "split" [("eyebrow", "Tentang kami"), ("title", "Berawal dari tim kecil, kini melayani ratusan klien"), ("text", "Kami percaya kerja sama yang baik dimulai dari mendengarkan. Itu sebabnya setiap proyek diawali dengan memahami tujuan Anda."), ("btn", "Kenali kami"), ("href", "/about"), ("src", placeholder), ("alt", "Tim kami")] []
       , blk "posts" [("eyebrow", "Blog"), ("title", "Kabar & wawasan terbaru"), ("count", "3"), ("btn", "Lihat semua artikel"), ("href", "/blog")] []
       , blk "cta" [("title", "Siap memulai proyek berikutnya?"), ("text", "Ceritakan kebutuhan Anda, kami bantu cari solusinya."), ("btn", "Hubungi kami"), ("href", "/contact")] []
@@ -383,11 +378,6 @@ sitePages =
       , blk "split" [("eyebrow", "Cara kerja"), ("title", "Proses yang jelas dari awal"), ("text", "1. Diskusi kebutuhan\n2. Rencana & penawaran\n3. Pengerjaan bertahap\n4. Serah terima & dukungan"), ("btn", "Konsultasi gratis"), ("href", "/contact"), ("src", placeholder), ("alt", "Proses kerja")] []
       , blk "cta" [("title", "Butuh layanan yang tidak ada di daftar?"), ("text", "Ceritakan saja — kemungkinan besar kami bisa membantu."), ("btn", "Diskusikan"), ("href", "/contact")] []
       ]
-  , SitePage "branch" "Branch" $
-      [ blk "head" [("eyebrow", "Branch"), ("title", "Kantor cabang"), ("text", "Temukan kantor terdekat dari lokasi Anda.")] []
-      , blk "branchdir" [("eyebrow", ""), ("title", "Lokasi kami"), ("text", "")] []
-      , blk "cta" [("title", "Tidak ada cabang di kota Anda?"), ("text", "Tim kami juga melayani secara online."), ("btn", "Hubungi kami"), ("href", "/contact")] []
-      ]
   , SitePage "blog" "Blog" $
       [ blk "head" [("eyebrow", "Blog"), ("title", "Kabar & wawasan"), ("text", "Tulisan terbaru dari tim kami.")] []
       ]
@@ -413,7 +403,6 @@ defaultPageIcon = \case
   "home" -> "fa-solid fa-house"
   "about" -> "fa-solid fa-users"
   "services" -> "fa-solid fa-briefcase"
-  "branch" -> "fa-solid fa-location-dot"
   "blog" -> "fa-regular fa-newspaper"
   "contact" -> "fa-solid fa-envelope"
   _ -> "fa-regular fa-file-lines"
@@ -465,8 +454,7 @@ pageTemplates =
       [headBlk] ++ concatMap spec ["faq", "cta"]
   , PageTemplate "gallery" "Galeri & video" "Foto kegiatan, logo klien, dan video." "fa-regular fa-images" $
       [headBlk] ++ concatMap spec ["gallery", "video", "logos"]
-  , PageTemplate "contact" "Kontak" "Info kontak dan daftar cabang." "fa-solid fa-envelope" $
-      systemDefaults "contact" ++ spec "branches"
+  , PageTemplate "contact" "Kontak" "Info kontak dan cara menghubungi." "fa-solid fa-envelope" (systemDefaults "contact")
   ]
   where
     headBlk = blk "head" [("eyebrow", ""), ("title", "Judul halaman"), ("text", "Keterangan singkat halaman ini.")] []
