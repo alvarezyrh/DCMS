@@ -62,9 +62,16 @@ pageView c pg edit posts extra =
         , pmImage = if isBlank (seoImage seo) then Nothing else Just (seoImage seo)
         , pmType = "website"
         , pmNoindex = seoNoindex seo || not (pagePublished pg)
-        , pmExtra = mempty
+        , pmExtra = when wild $ do
+            link_ [rel_ "stylesheet", href_ (staticUrl (envStatic (cEnv c)) "home.css")]
+            script_ [src_ (staticUrl (envStatic (cEnv c)) "home.js"), defer_ "defer"] ("" :: Text)
         }
-    bodyAttrs = if edit then [class_ "site pb-editing", data_ "page" (pageSlug pg)] else [class_ "site"]
+    -- Home tampil "liar" (static/home.css & home.js); tidak di mode edit agar builder tetap tenang.
+    wild = pageSlug pg == "home" && not edit
+    bodyAttrs
+      | edit = [class_ "site pb-editing", data_ "page" (pageSlug pg)]
+      | wild = [class_ "site page-home"]
+      | otherwise = [class_ "site"]
 
 -- | Daftar artikel di halaman Blog (tidak bisa diedit: isinya dari menu Artikel).
 -- | Isi daftar artikel di halaman Blog.

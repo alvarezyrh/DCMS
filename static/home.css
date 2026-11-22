@@ -1,0 +1,206 @@
+/* =====================================================================
+   Home versi "liar": hanya dimuat di halaman Home (body.page-home).
+   Konsep: terminal developer yang hidup. Prompt mengetik, nama raksasa
+   bergeser, lantai grid, orbit ikon layanan, pita berjalan, kartu miring
+   3D, angka terisi, CTA berputar, kursor. Efek judul h1/h2 ada di
+   style.css & app.js karena berlaku di semua halaman.
+   Warna tetap dari tema: --primary (teal) + violet, langit, merah muda.
+   Gerak hanya transform/opacity; semua mati bila gerak minimal dipilih.
+   ===================================================================== */
+.page-home { --vio: #8b5cf6; --sky: #38bdf8; --pink: #f472b6; overflow-x: clip; }
+
+/* Butiran halus di seluruh layar: tekstur "cetak" agar tidak terasa datar. */
+.page-home .site-main::after {
+  content: ""; position: fixed; inset: 0; z-index: 40; pointer-events: none; opacity: .055;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* ---------- Hero ---------- */
+.page-home .pb-hero { isolation: isolate; }
+.page-home .hx-floor, .page-home .hx-name, .page-home .hx-spot { position: absolute; z-index: -1; pointer-events: none; }
+
+/* Lantai grid perspektif yang terus mengalir ke arah pengunjung. */
+.page-home .hx-floor {
+  left: -30%; right: -30%; bottom: 0; height: 58%; perspective: 380px; overflow: hidden;
+  -webkit-mask-image: linear-gradient(to top, #000 5%, transparent 90%); mask-image: linear-gradient(to top, #000 5%, transparent 90%);
+}
+.page-home .hx-floor i {
+  position: absolute; left: 0; right: 0; bottom: 0; height: 200%; transform-origin: 50% 100%; transform: rotateX(64deg);
+  background-image:
+    linear-gradient(color-mix(in srgb, var(--primary) 30%, transparent) 1.5px, transparent 1.5px),
+    linear-gradient(90deg, color-mix(in srgb, var(--primary) 30%, transparent) 1.5px, transparent 1.5px);
+  background-size: 64px 64px; animation: hx-floor 2.4s linear infinite;
+}
+@keyframes hx-floor { to { transform: rotateX(64deg) translateY(64px); } }
+
+/* Nama raksasa bergaris tepi, bergeser mengikuti gulir. */
+.page-home .hx-name {
+  left: 0; bottom: -3%; white-space: nowrap; font-size: clamp(5rem, 17vw, 17rem); font-weight: 800; line-height: .8;
+  letter-spacing: -.045em; text-transform: uppercase; color: transparent; user-select: none;
+  -webkit-text-stroke: 1.5px color-mix(in srgb, var(--primary) 32%, transparent);
+  transform: translate3d(var(--wm, 0px), 0, 0); will-change: transform;
+}
+
+/* Lampu sorot yang mengikuti kursor di hero. */
+.page-home .hx-spot {
+  inset: 0; opacity: 0; transition: opacity .5s;
+  background: radial-gradient(520px circle at var(--sx, 70%) var(--sy, 40%), color-mix(in srgb, var(--primary) 22%, transparent), color-mix(in srgb, var(--vio) 8%, transparent) 40%, transparent 70%);
+}
+.page-home .pb-hero:hover .hx-spot { opacity: 1; }
+
+/* Prompt terminal: "~/doni $ Web Developer & Konsultan IT▌" */
+.page-home .hx-term {
+  display: inline-flex; align-items: center; gap: .5em; padding: .4em .9em; border-radius: 999px; margin-bottom: 1rem;
+  font-family: var(--mono); font-size: .8rem; letter-spacing: 0; text-transform: none; color: var(--text);
+  background: color-mix(in srgb, var(--surface) 70%, transparent); border: 1px solid color-mix(in srgb, var(--primary) 30%, transparent);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--primary) 14%, transparent);
+}
+.page-home .hx-term::before { content: attr(data-prompt); color: var(--vio); font-weight: 700; }
+.page-home .hx-caret { display: inline-block; width: .55em; height: 1.15em; margin-left: -.3em; background: var(--primary); animation: hx-blink 1s steps(1) infinite; }
+@keyframes hx-blink { 50% { opacity: 0; } }
+
+/* Judul hero lebih besar; efek per huruf berasal dari style.css & app.js (semua halaman). */
+.page-home .pb-hero.has-img h1, .page-home .pb-hero h1 { font-size: clamp(2.5rem, 5.6vw, 4.6rem); line-height: 1.02; letter-spacing: -.035em; cursor: pointer; }
+.page-home .pb-hero .hx-letters { filter: drop-shadow(0 10px 18px color-mix(in srgb, var(--primary) 28%, transparent)); }
+
+/* Tombol magnet (posisi digeser lewat JS memakai properti translate). */
+.page-home .pb-hero .btn, .page-home .cta-box .btn { transition: translate .3s cubic-bezier(.2, .8, .2, 1), background-color .2s, box-shadow .2s; }
+.page-home .pb-hero .btn:not(.btn-ghost) { box-shadow: 0 12px 30px color-mix(in srgb, var(--primary) 40%, transparent); }
+.page-home .pb-hero .btn-ghost { background: color-mix(in srgb, var(--surface) 80%, transparent); border: 1px solid color-mix(in srgb, var(--primary) 30%, transparent); }
+
+/* Foto: lingkaran bernapas, cincin putus-putus berputar, orbit ikon layanan. */
+.page-home .hero-cutout .hero-media::before { animation: hx-breathe 6s ease-in-out infinite alternate; }
+.page-home .hero-cutout .hero-media::after { border-width: 2.5px; animation: hx-ring 40s linear infinite; }
+@keyframes hx-breathe { to { transform: translate(-50%, -50%) scale(1.06); } }
+@keyframes hx-ring { to { transform: translate(-50%, -50%) rotate(360deg); } }
+.page-home .hero-cutout .hero-img { cursor: pointer; translate: calc(var(--px, 0) * 14px) calc(var(--py, 0) * 10px); transition: translate .4s cubic-bezier(.2, .8, .2, 1); }
+.page-home .hx-orbit { position: absolute; z-index: 0; left: 50%; top: 47%; width: 128%; aspect-ratio: 1; pointer-events: none; transform: translate(-50%, -50%); animation: hx-orbit 30s linear infinite; }
+.page-home .hx-arm { position: absolute; inset: 0; transform: rotate(var(--a)); }
+.page-home .hx-chip {
+  position: absolute; top: -23px; left: 50%; width: 46px; height: 46px; margin-left: -23px; border-radius: 14px;
+  display: grid; place-items: center; font-size: 1.1rem; color: var(--c); background: var(--surface);
+  box-shadow: 0 10px 26px rgba(16, 30, 28, .16), 0 0 0 1px color-mix(in srgb, var(--c) 30%, transparent);
+  animation: hx-counter 30s linear infinite;
+}
+@keyframes hx-orbit { to { transform: translate(-50%, -50%) rotate(360deg); } }
+@keyframes hx-counter { from { transform: rotate(calc(-1 * var(--a))); } to { transform: rotate(calc(-1 * var(--a) - 360deg)); } }
+
+/* Animasi hero berhenti saat hero tidak terlihat (hemat baterai). */
+.page-home .pb-hero.hx-paused, .page-home .pb-hero.hx-paused *, .page-home .pb-hero.hx-paused *::before, .page-home .pb-hero.hx-paused *::after,
+.page-home .pb-hero.hx-paused::before, .page-home .pb-hero.hx-paused::after { animation-play-state: paused !important; }
+
+/* ---------- Pita berjalan bersilang di bawah hero ---------- */
+.page-home .hx-marquee { position: relative; z-index: 2; margin: -2.6rem 0 -1.2rem; padding: 2.2rem 0; overflow: hidden; pointer-events: none; }
+.page-home .hx-belt { width: 114%; margin-left: -7%; overflow: hidden; padding: .85rem 0; }
+.page-home .hx-belt-a {
+  position: relative; z-index: 1; color: #fff; transform: rotate(-2.6deg);
+  background: linear-gradient(90deg, var(--primary), var(--vio) 50%, var(--sky));
+  box-shadow: 0 16px 40px color-mix(in srgb, var(--vio) 28%, transparent);
+}
+.page-home .hx-belt-b { margin-top: -.35rem; transform: rotate(1.9deg); background: var(--surface); border-block: 1px solid var(--border); }
+.page-home .hx-track { display: flex; width: max-content; will-change: transform; }
+.page-home .hx-half { display: flex; align-items: center; gap: 1.5rem; padding-right: 1.5rem; }
+.page-home .hx-item { font-size: clamp(1.05rem, 2.4vw, 1.85rem); font-weight: 800; line-height: 1.2; text-transform: uppercase; white-space: nowrap; }
+.page-home .hx-belt-b .hx-item { color: transparent; -webkit-text-stroke: 1.2px var(--primary); }
+.page-home .hx-star { font-size: 1.15rem; }
+.page-home .hx-belt-b .hx-star { color: var(--vio); }
+
+/* ---------- Judul bagian ---------- */
+.page-home .pb-heading .eyebrow::before { content: "// "; font-family: var(--mono); color: var(--vio); }
+.page-home .pb-heading h2 { font-size: clamp(2rem, 4.6vw, 3.3rem); letter-spacing: -.035em; line-height: 1.05; }
+
+/* ---------- Kartu: miring 3D mengikuti kursor ---------- */
+.page-home .pb-ico { transition: transform .45s cubic-bezier(.3, 1.7, .5, 1); }
+.page-home .pb-card:hover .pb-ico { transform: rotate(-12deg) scale(1.18); }
+@media (hover: hover) and (pointer: fine) {
+  .page-home .hx-tilt:not(.rv), .page-home .hx-tilt.rv-in {
+    transform: perspective(900px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg)) translateY(var(--lift, 0px));
+    transition: transform .45s cubic-bezier(.2, .8, .2, 1), opacity .7s ease, box-shadow .3s;
+  }
+  .page-home .hx-tilt:hover { --lift: -8px; box-shadow: 0 26px 50px rgba(16, 30, 28, .14); }
+}
+
+/* Kartu kaca: bingkai pelangi berputar saat disorot. */
+@property --hx-ang { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
+.page-home .fs-glass .pb-card::before {
+  content: ""; position: absolute; inset: 0; border-radius: inherit; padding: 2px; pointer-events: none; opacity: 0;
+  background: conic-gradient(from var(--hx-ang), var(--primary), var(--vio), var(--sky), var(--pink), var(--primary));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+  transition: opacity .3s; animation: hx-ang 3.5s linear infinite paused;
+}
+.page-home .fs-glass .pb-card:hover::before { opacity: 1; animation-play-state: running; }
+@keyframes hx-ang { to { --hx-ang: 360deg; } }
+
+/* Alur kerja: angka raksasa bergaris tepi yang "terisi cairan" saat terlihat,
+   dan garis waktu yang memanjang mengikuti gulir. */
+.page-home .fs-number .pb-card::before {
+  font-size: clamp(3.2rem, 6vw, 4.8rem); color: transparent; -webkit-text-fill-color: transparent;
+  -webkit-text-stroke: 2px color-mix(in srgb, var(--primary) 75%, transparent);
+  background: linear-gradient(0deg, var(--primary), var(--vio)) no-repeat 0 100% / 100% 0%; -webkit-background-clip: text; background-clip: text;
+  transition: background-size 1.2s cubic-bezier(.6, 0, .2, 1) .15s;
+}
+.page-home .fs-number .pb-card.hx-lit::before { background-size: 100% 100%; }
+.page-home .fs-number .pb-grid { position: relative; }
+.page-home .fs-number .pb-grid::before {
+  content: ""; position: absolute; left: 0; right: 0; top: -18px; height: 4px; border-radius: 4px; transform-origin: 0 50%;
+  background: linear-gradient(90deg, var(--primary), var(--vio), var(--sky), var(--pink)); transform: scaleX(var(--prog, 0));
+}
+
+/* Tulisan: sampul sedikit berputar saat disorot. */
+.page-home .post-tile:hover .post-cover img { transform: scale(1.09) rotate(-1.2deg); }
+
+/* ---------- CTA: pusaran warna berputar + percikan naik ---------- */
+.page-home .cta-box { position: relative; overflow: hidden; isolation: isolate; padding: clamp(2.2rem, 5vw, 4rem); }
+.page-home .cta-box::before {
+  content: ""; position: absolute; z-index: -2; left: 50%; top: 50%; width: 170%; aspect-ratio: 1; border-radius: 50%;
+  background: conic-gradient(var(--primary), var(--vio), var(--sky), #0f766e, var(--pink), var(--primary));
+  transform: translate(-50%, -50%); animation: hx-swirl 16s linear infinite;
+}
+.page-home .cta-box::after { content: ""; position: absolute; inset: 0; z-index: -1; background: radial-gradient(ellipse at 25% 50%, rgba(5, 30, 28, .62), rgba(5, 30, 28, .18) 80%); }
+@keyframes hx-swirl { to { transform: translate(-50%, -50%) rotate(360deg); } }
+.page-home .cta-box h2 { font-size: clamp(1.9rem, 4.2vw, 3.1rem); letter-spacing: -.035em; line-height: 1.05; }
+.page-home .hx-sparks { position: absolute; inset: 0; z-index: -1; pointer-events: none; }
+.page-home .hx-sparks i {
+  position: absolute; bottom: -12px; left: var(--x); width: var(--s); height: var(--s); border-radius: 50%;
+  background: rgba(255, 255, 255, .8); box-shadow: 0 0 12px rgba(255, 255, 255, .7); opacity: 0;
+  animation: hx-rise var(--d) linear var(--dl) infinite;
+}
+@keyframes hx-rise { 15% { opacity: .9; } 100% { opacity: 0; transform: translate3d(var(--dx), -420px, 0); } }
+.page-home .cta-box .btn { position: relative; }
+.page-home .cta-box .btn::after {
+  content: ""; position: absolute; inset: -3px; border-radius: inherit; border: 2px solid rgba(255, 255, 255, .75); pointer-events: none;
+  animation: hx-pulse 2.2s ease-out infinite;
+}
+@keyframes hx-pulse { from { opacity: .9; transform: scale(1); } to { opacity: 0; transform: scale(1.18, 1.55); } }
+
+/* ---------- Kursor & ledakan partikel ---------- */
+.hx-dot, .hx-ring { position: fixed; left: 0; top: 0; z-index: 2000; pointer-events: none; border-radius: 50%; opacity: 0; transition: opacity .3s; }
+.hx-dot { width: 8px; height: 8px; margin: -4px 0 0 -4px; background: var(--primary); }
+.hx-ring {
+  width: 38px; height: 38px; margin: -19px 0 0 -19px; border: 1.5px solid color-mix(in srgb, var(--primary) 65%, transparent);
+  transition: opacity .3s, scale .3s cubic-bezier(.2, .8, .2, 1), background-color .3s, border-color .3s;
+}
+.hx-cur .hx-dot, .hx-cur .hx-ring { opacity: 1; }
+.hx-ring.is-link { scale: 1.75; background: color-mix(in srgb, var(--primary) 12%, transparent); border-color: var(--vio); }
+.hx-ring.is-down { scale: .7; }
+.hx-bit { position: fixed; z-index: 2001; width: 9px; height: 9px; border-radius: 50%; pointer-events: none; }
+.hx-bit.sq { border-radius: 2px; }
+
+/* ---------- Layar kecil ---------- */
+@media (max-width: 760px) {
+  .page-home .hx-name { bottom: 1%; font-size: 26vw; }
+  .page-home .hx-floor { height: 42%; }
+  .page-home .hx-chip { width: 36px; height: 36px; margin-left: -18px; top: -18px; border-radius: 11px; font-size: .9rem; }
+  .page-home .hx-term { font-size: .72rem; }
+  .page-home .hx-marquee { margin-top: -1.6rem; padding: 1.6rem 0; }
+  .page-home .fs-number .pb-grid::before { display: none; }
+}
+
+/* ---------- Gerak minimal: semua animasi berhenti, tampilan tetap ---------- */
+@media (prefers-reduced-motion: reduce) {
+  .page-home .hx-floor i, .page-home .hx-orbit, .page-home .hx-chip, .page-home .hx-caret, .page-home .hx-sparks,
+  .page-home .hero-cutout .hero-media::before, .page-home .hero-cutout .hero-media::after,
+  .page-home .cta-box::before, .page-home .cta-box .btn::after { animation: none !important; }
+  .page-home .fs-number .pb-card::before { transition: none; background-size: 100% 100%; }
+}

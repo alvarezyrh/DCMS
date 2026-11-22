@@ -5,7 +5,7 @@ import Control.Applicative ((<|>))
 import Control.Monad (forM_, mfilter, unless, when)
 import Data.Char (isAlphaNum)
 import qualified Data.Map.Strict as M
-import Data.Maybe (isJust)
+import Data.Maybe (isJust, isNothing)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -43,13 +43,15 @@ headWith c title extra = head_ $ do
   meta_ [charset_ "utf-8"]
   meta_ [name_ "viewport", content_ "width=device-width, initial-scale=1"]
   title_ (toHtml title)
-  link_ [rel_ "preconnect", href_ "https://fonts.googleapis.com"]
-  link_ [rel_ "preconnect", href_ "https://fonts.gstatic.com", crossorigin_ ""]
-  link_ [rel_ "stylesheet", href_ "https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800&display=swap"]
-  link_ [rel_ "stylesheet", href_ "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css", crossorigin_ "anonymous", makeAttribute "referrerpolicy" "no-referrer"]
-  link_ [rel_ "stylesheet", href_ (staticUrl (envStatic (cEnv c)) "style.css")]
-  script_ [src_ (staticUrl (envStatic (cEnv c)) "app.js"), defer_ "defer"] ("" :: Text)
+  -- Font & ikon disajikan sendiri (static/fonts.css, dibuat tools/fonts.py): tanpa CDN.
+  when (isNothing (fontLink (setNav (cSettings c)))) $
+    link_ [rel_ "preload", href_ (asset "nunito-latin.woff2"), makeAttribute "as" "font", type_ "font/woff2", crossorigin_ ""]
+  link_ [rel_ "stylesheet", href_ (asset "fonts.css")]
+  link_ [rel_ "stylesheet", href_ (asset "style.css")]
+  script_ [src_ (asset "app.js"), defer_ "defer"] ("" :: Text)
   extra
+  where
+    asset = staticUrl (envStatic (cEnv c))
 
 csrfField :: Ctx -> Html ()
 csrfField c = input_ [type_ "hidden", name_ "_csrf", value_ (cCsrf c)]
@@ -386,7 +388,14 @@ siteFooter c =
         div_ [class_ "footer-social"] $
           forM_ socialKinds $ \(k, lbl, ic) -> forM_ (lookup k social) $ \url ->
             a_ [href_ url, target_ "_blank", rel_ "noopener me", title_ lbl, makeAttribute "aria-label" lbl] (icon ic)
-      p_ [class_ "muted footer-copy", data_ "footer-copy" defCopy, data_ "year" (cYear c)] (toHtml (T.replace "{tahun}" (cYear c) (fromMaybe' defCopy (navText "footer_copy" nav))))
+      -- Baris bawah: hak cipta (bisa diubah di page builder) di kiri, kredit di kanan.
+      div_ [class_ "footer-bottom"] $ do
+        p_ [class_ "muted footer-copy", data_ "footer-copy" defCopy, data_ "year" (cYear c)] (toHtml (T.replace "{tahun}" (cYear c) (fromMaybe' defCopy (navText "footer_copy" nav))))
+        p_ [class_ "muted footer-made"] $ do
+          "Made with "
+          a_ [href_ "https://www.haskell.org", target_ "_blank", rel_ "noopener"] "Haskell"
+          " & "
+          span_ [class_ "footer-love", role_ "img", makeAttribute "aria-label" "cinta"] "❤️"
   where
     nav = setNav (cSettings c)
     tagline = setTagline (cSettings c)

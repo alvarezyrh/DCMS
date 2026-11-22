@@ -296,7 +296,14 @@ a.side-box:hover, button.side-box:hover { background: var(--primary-soft); borde
 .footer-inner p { margin: .4rem 0 0; }
 .footer-menu { display: flex; flex-wrap: wrap; gap: .5rem 1.4rem; }
 .footer-menu a { color: var(--muted); font-weight: 600; }
-.footer-copy { width: 100%; border-top: 1px solid var(--border); padding-top: 1rem; }
+.footer-bottom { width: 100%; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .35rem 1.5rem; border-top: 1px solid var(--border); padding-top: 1rem; }
+.footer-inner .footer-bottom p { margin: 0; }
+.footer-made { white-space: nowrap; }
+.footer-made a { color: inherit; font-weight: 700; }
+.footer-love { display: inline-block; margin-left: .1em; animation: love-beat 1.8s ease-in-out infinite; }
+@keyframes love-beat { 0%, 50%, 100% { transform: scale(1); } 12%, 32% { transform: scale(1.22); } }
+@media (max-width: 600px) { .footer-bottom { justify-content: center; text-align: center; } }
+@media (prefers-reduced-motion: reduce) { .footer-love { animation: none; } }
 
 .pb { position: relative; padding: 72px 0; }
 .pb h1 { font-size: clamp(2rem, 4.5vw, 3.1rem); letter-spacing: -.02em; line-height: 1.12; margin: 0 0 .45em; }
@@ -1498,13 +1505,13 @@ li.lv-bad > i, .sw-level.lv-bad i { color: var(--st-bad); }
 .site .site-footer .brand { color: var(--ft-link, var(--ft-text, var(--text))); }
 .site .footer-menu a { color: var(--ft-link, var(--ft-text, var(--muted))); }
 .site .footer-social a { color: var(--ft-link, var(--ft-text, var(--text))); }
-.site .footer-copy { border-top-color: color-mix(in srgb, currentColor 22%, transparent); }
+.site .footer-bottom { border-top-color: color-mix(in srgb, currentColor 22%, transparent); }
 .footer-about { max-width: 420px; }
 .footer-text { white-space: pre-line; }
 .ft-no-brand .footer-brand, .ft-no-menu .footer-menu, .ft-no-social .footer-social { display: none; }
 .ft-center .footer-inner { flex-direction: column; align-items: center; text-align: center; }
 .ft-center .footer-about { margin: 0 auto; }
-.ft-center .footer-menu, .ft-center .footer-social { justify-content: center; }
+.ft-center .footer-menu, .ft-center .footer-social, .ft-center .footer-bottom { justify-content: center; }
 .pb-nav-sub { font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; color: var(--primary); margin: .4rem 0 -.2rem; padding-top: .6rem; border-top: 1px dashed var(--border); }
 .pb-nav-body > .pb-nav-sub:first-child { border-top: 0; padding-top: 0; margin-top: 0; }
 .pb-nav-text, .pb-nav-image { display: grid; gap: .35rem; font-size: .78rem; font-weight: 700; color: var(--muted); }
@@ -1601,6 +1608,19 @@ html:has(dialog.img-popup[open]) { overflow: hidden; }
   -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
 }
 .hero-bg .hl, .cta-box .hl { background: linear-gradient(100deg, #fff, color-mix(in srgb, var(--primary) 35%, #fff)); -webkit-background-clip: text; background-clip: text; }
+
+/* Judul h1 per huruf (static/app.js): jatuh berputar saat dimuat, bergelombang saat
+   disorot. Di dalam teks sorot (.hl) tiap huruf mengambil warna gradasinya sendiri. */
+.hx-w { display: inline-block; white-space: nowrap; }
+.hx-ch { display: inline-block; transform-origin: 50% 100%; }
+.hx-split .hl { background: none; -webkit-text-fill-color: currentColor; }
+.hx-split .hl .hx-ch { color: var(--primary); color: color-mix(in oklab, var(--primary), color-mix(in srgb, var(--primary) 45%, #8b5cf6) calc(var(--p, 0) * 1%)); }
+.hero-bg .hx-split .hl .hx-ch { color: color-mix(in oklab, #fff, color-mix(in srgb, var(--primary) 35%, #fff) calc(var(--p, 0) * 1%)); }
+.hx-drop .hx-ch { animation: hx-drop 1s cubic-bezier(.2, 1.5, .35, 1) calc(var(--d, 0ms) + .15s) both; }
+.hx-wave .hx-ch { animation: hx-jump .75s cubic-bezier(.3, 1.7, .5, 1) calc(var(--d, 0ms) * .8) both; }
+@keyframes hx-drop { from { opacity: 0; transform: translateY(-130%) rotate(-35deg) scale(.5); } }
+@keyframes hx-jump { 40% { transform: translateY(-.34em) rotate(-9deg) scale(1.14); } }
+@media (prefers-reduced-motion: reduce) { .hx-ch { animation: none !important; } }
 
 @media (hover: hover) {
   body.site:not(.pb-editing) .pb-card { isolation: isolate; }

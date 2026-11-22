@@ -2,6 +2,24 @@
 (function () {
   "use strict";
 
+  // ---------- Ikon ----------
+  // static/fonts.css hanya berisi ikon yang dipakai situs. Bila halaman memuat ikon lain
+  // (mis. dipilih lewat page builder), atau sedang di mode edit (pemilih ikon bebas),
+  // Font Awesome lengkap dimuat dari CDN.
+  var needFullIcons = document.body.classList.contains("pb-editing") ||
+    Array.prototype.some.call(document.querySelectorAll("i.fa-solid, i.fa-regular, i.fa-brands"), function (i) {
+      var c = getComputedStyle(i, "::before").content;
+      return !c || c === "none" || c === "normal";
+    });
+  if (needFullIcons) {
+    var fa = document.createElement("link");
+    fa.rel = "stylesheet";
+    fa.href = "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css";
+    fa.crossOrigin = "anonymous";
+    fa.referrerPolicy = "no-referrer";
+    document.head.appendChild(fa);
+  }
+
   // Form dengan data-confirm meminta konfirmasi sebelum dikirim.
   document.addEventListener("submit", function (e) {
     var form = e.target;
@@ -248,6 +266,95 @@
       if (t[1]) el.style.transitionDelay = t[1] + "s";
       io.observe(el);
     });
+  }
+
+  // ---------- Judul: h1 per huruf, h2 teracak lalu terbaca ----------
+  // h1 di halaman situs dipecah per huruf: jatuh berputar saat dimuat, bergelombang saat
+  // disorot (atau saat menerima event "hx:wave"). Huruf di dalam teks sorot (.hl) diberi
+  // gradasi warna tema. Teks asli dipindah ke span.sr-only untuk pembaca layar; salinan
+  // per huruf aria-hidden. h2 judul bagian page builder teracak sebentar saat terlihat.
+  // Tidak berlaku di mode edit dan tidak menyentuh isi artikel.
+  if (document.body.classList.contains("site") && !document.body.classList.contains("pb-editing")) {
+    var splitHeading = function (h) {
+      var sr = document.createElement("span");
+      sr.className = "sr-only";
+      while (h.firstChild) sr.appendChild(h.firstChild);
+      var view = sr.cloneNode(true);
+      view.className = "hx-letters";
+      view.setAttribute("aria-hidden", "true");
+      var letters = [];
+      (function walk(node) {
+        Array.prototype.slice.call(node.childNodes).forEach(function (n) {
+          if (n.nodeType === 1) return walk(n);
+          if (n.nodeType !== 3) return;
+          var frag = document.createDocumentFragment(), word = null;
+          Array.from(n.nodeValue).forEach(function (ch) {
+            if (/\s/.test(ch)) { frag.appendChild(document.createTextNode(ch)); word = null; return; }
+            if (!word) { word = document.createElement("span"); word.className = "hx-w"; frag.appendChild(word); }
+            var c = document.createElement("span");
+            c.className = "hx-ch";
+            c.textContent = ch;
+            word.appendChild(c);
+            letters.push(c);
+          });
+          n.parentNode.replaceChild(frag, n);
+        });
+      })(view);
+      // Jeda antarhuruf menyesuaikan panjang judul: total animasi maks. ~1,4 detik.
+      var step = Math.min(55, 1400 / Math.max(letters.length, 1));
+      letters.forEach(function (c, i) { c.style.setProperty("--d", Math.round(i * step) + "ms"); });
+      view.querySelectorAll(".hl").forEach(function (hl) {
+        var cs = hl.querySelectorAll(".hx-ch");
+        cs.forEach(function (c, k) { c.style.setProperty("--p", cs.length > 1 ? Math.round(k / (cs.length - 1) * 100) : 0); });
+      });
+      h.appendChild(sr);
+      h.appendChild(view);
+      h.classList.add("hx-split");
+      if (reduceMotion) return;
+      h.classList.add("hx-drop");
+      var waving = false;
+      var wave = function () {
+        if (waving) return;
+        waving = true;
+        h.classList.remove("hx-drop");
+        h.classList.add("hx-wave");
+        setTimeout(function () { h.classList.remove("hx-wave"); waving = false; }, letters.length * step * 0.8 + 800);
+      };
+      h.addEventListener("mouseenter", wave);
+      h.addEventListener("hx:wave", wave);
+    };
+    document.querySelectorAll("main h1").forEach(splitHeading);
+
+    if (!reduceMotion && "IntersectionObserver" in window) {
+      var GLYPHS = "<>/{}[]=+*#$_01";
+      var scramble = function (el) {
+        var nodes = [];
+        (function walk(n) {
+          if (n.nodeType === 3 && n.nodeValue.trim()) nodes.push({ node: n, text: n.nodeValue });
+          else Array.prototype.forEach.call(n.childNodes, walk);
+        })(el);
+        var start = null;
+        requestAnimationFrame(function frame(t) {
+          if (start === null) start = t;
+          var k = Math.min((t - start) / 900, 1);
+          nodes.forEach(function (o) {
+            var keep = Math.floor(k * o.text.length), out = o.text.slice(0, keep);
+            for (var i = keep; i < o.text.length; i++)
+              out += /\s/.test(o.text[i]) ? o.text[i] : GLYPHS[(Math.random() * GLYPHS.length) | 0];
+            o.node.nodeValue = out;
+          });
+          if (k < 1) requestAnimationFrame(frame);
+        });
+      };
+      var heads = new IntersectionObserver(function (entries) {
+        entries.forEach(function (en) {
+          if (!en.isIntersecting) return;
+          scramble(en.target);
+          heads.unobserve(en.target);
+        });
+      }, { threshold: 0.6 });
+      document.querySelectorAll("main .pb h2").forEach(function (h) { heads.observe(h); });
+    }
   }
 
   // ---------- Angka (blok "Angka"): hitung naik saat terlihat ----------
